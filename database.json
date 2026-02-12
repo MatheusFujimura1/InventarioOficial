@@ -1,20 +1,6 @@
 {
   "inventory": [
     {
-      "id": 1770916326626.6953,
-      "code": "300500000042",
-      "desc": "AAAAA",
-      "wh": "DP01",
-      "sapQ": 20,
-      "physQ": 19,
-      "sapVal": 100,
-      "divQ": -1,
-      "divVal": -5,
-      "date": "12/02/2026",
-      "registeredBy": "Matheus Fujimura",
-      "registeredRole": "Administrador"
-    },
-    {
       "id": 1770916454709.5854,
       "code": "300500231957",
       "desc": "AAAAAAAAAAAA",
