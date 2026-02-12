@@ -1,7 +1,7 @@
 // --- CONFIGURAÇÃO GITHUB (PREENCHA AQUI) ---
 const GITHUB_CONFIG = {
     OWNER: 'MatheusFujimura1', // Seu usuário do GitHub
-    REPO: 'InventarioOficial',   // <--- CORRIGIDO PARA O NOME REAL DO SEU REPO
+    REPO: 'InventarioOficial',   // O nome exato do seu repositório
     TOKEN: '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', // Seu token
     FILE_PATH: 'database.json',
     BRANCH: 'main' // ou 'master', dependendo de como criou
@@ -9,10 +9,9 @@ const GITHUB_CONFIG = {
 
 // --- SERVIÇO DE BANCO DE DADOS (GITHUB API) ---
 const GithubDB = {
-    sha: null, // Identificador da versão do arquivo (necessário para atualizar)
-    data: null, // Dados em cache
+    sha: null, 
+    data: null, 
 
-    // Função auxiliar para codificar em Base64 (suporta UTF-8)
     toBase64: (str) => {
         return btoa(encodeURIComponent(str).replace(/%([0-9A-F]{2})/g,
             function toSolidBytes(match, p1) {
@@ -20,7 +19,7 @@ const GithubDB = {
         }));
     },
 
-    // Ler dados do GitHub
+    // Ler dados JSON do GitHub
     fetchData: async () => {
         try {
             const url = `https://api.github.com/repos/${GITHUB_CONFIG.OWNER}/${GITHUB_CONFIG.REPO}/contents/${GITHUB_CONFIG.FILE_PATH}?ref=${GITHUB_CONFIG.BRANCH}`;
@@ -34,9 +33,8 @@ const GithubDB = {
             if (!response.ok) throw new Error('Falha ao conectar com GitHub');
 
             const json = await response.json();
-            GithubDB.sha = json.sha; // Guarda o SHA para o próximo update
+            GithubDB.sha = json.sha; 
             
-            // Decodifica Base64 (suporta UTF-8)
             const decodedContent = decodeURIComponent(atob(json.content).split('').map(function(c) {
                 return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
             }).join(''));
@@ -50,7 +48,34 @@ const GithubDB = {
         }
     },
 
-    // Salvar dados no GitHub
+    // Buscar arquivo binário (Excel) do GitHub
+    fetchBinaryFile: async (filename) => {
+        try {
+            const url = `https://api.github.com/repos/${GITHUB_CONFIG.OWNER}/${GITHUB_CONFIG.REPO}/contents/${filename}?ref=${GITHUB_CONFIG.BRANCH}`;
+            const response = await fetch(url, {
+                headers: {
+                    'Authorization': `token ${GITHUB_CONFIG.TOKEN}`,
+                    'Accept': 'application/vnd.github.v3+json'
+                }
+            });
+
+            if (!response.ok) return null;
+
+            const json = await response.json();
+            // Converter Base64 para ArrayBuffer
+            const binaryString = atob(json.content.replace(/\s/g, ''));
+            const len = binaryString.length;
+            const bytes = new Uint8Array(len);
+            for (let i = 0; i < len; i++) {
+                bytes[i] = binaryString.charCodeAt(i);
+            }
+            return bytes;
+        } catch (error) {
+            console.error(`Erro ao baixar ${filename}:`, error);
+            return null;
+        }
+    },
+
     saveData: async (newData) => {
         if (!GithubDB.sha) {
             alert('Erro: SHA não encontrado. Recarregue a página.');
@@ -84,8 +109,8 @@ const GithubDB = {
             }
 
             const json = await response.json();
-            GithubDB.sha = json.content.sha; // Atualiza SHA
-            GithubDB.data = newData; // Atualiza cache local
+            GithubDB.sha = json.content.sha;
+            GithubDB.data = newData;
             return true;
         } catch (error) {
             console.error('Erro ao salvar:', error);
@@ -97,25 +122,81 @@ const GithubDB = {
     }
 };
 
+// --- DADOS MESTRES (EXCEL) ---
+const MasterData = {
+    descriptions: {}, // Mapa: Código -> Descrição
+    prices: {},       // Mapa: Código -> Preço Unitário
+    isLoaded: false,
+
+    init: async () => {
+        if (MasterData.isLoaded) return;
+        
+        const statusEl = document.getElementById('master-data-status');
+        if(statusEl) {
+            statusEl.classList.remove('hidden');
+            statusEl.innerHTML = `<div class="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-600"></div><span class="text-gray-600">Baixando BaseTanabi.xlsx e Valores.xlsx...</span>`;
+        }
+
+        // 1. Carregar Descrições (BaseTanabi.xlsx)
+        const baseBuffer = await GithubDB.fetchBinaryFile('BaseTanabi.xlsx');
+        if (baseBuffer) {
+            const wb = XLSX.read(baseBuffer, {type: 'array'});
+            const ws = wb.Sheets[wb.SheetNames[0]];
+            // Ler Coluna A (Código) e B (Texto Breve)
+            const rows = XLSX.utils.sheet_to_json(ws, {header: 1}); // Array de Arrays
+            rows.forEach(row => {
+                const code = String(row[0]).trim(); // Coluna A
+                const desc = row[1]; // Coluna B
+                if (code) MasterData.descriptions[code] = desc;
+            });
+            console.log('BaseTanabi carregada:', Object.keys(MasterData.descriptions).length, 'itens.');
+        }
+
+        // 2. Carregar Preços (Valores.xlsx)
+        const valBuffer = await GithubDB.fetchBinaryFile('Valores.xlsx');
+        if (valBuffer) {
+            const wb = XLSX.read(valBuffer, {type: 'array'});
+            const ws = wb.Sheets[wb.SheetNames[0]];
+            // Ler Coluna A (Código) e J (Indice 9 - Valor)
+            const rows = XLSX.utils.sheet_to_json(ws, {header: 1});
+            rows.forEach(row => {
+                const code = String(row[0]).trim(); // Coluna A
+                const priceRaw = row[9]; // Coluna J (Indice 9)
+                let price = 0;
+                if (typeof priceRaw === 'number') {
+                    price = priceRaw;
+                } else if (typeof priceRaw === 'string') {
+                    // Tenta limpar formatação R$ 1.000,00
+                    price = parseFloat(priceRaw.replace(/[R$\s]/g, '').replace(/\./g, '').replace(',', '.'));
+                }
+                if (code && !isNaN(price)) MasterData.prices[code] = price;
+            });
+            console.log('Valores carregada:', Object.keys(MasterData.prices).length, 'itens.');
+        }
+
+        MasterData.isLoaded = true;
+        if(statusEl) {
+            statusEl.innerHTML = `<i data-lucide="check-circle" class="w-4 h-4 text-green-600"></i><span class="text-green-700 font-medium">Bases de dados carregadas e prontas!</span>`;
+            lucide.createIcons();
+        }
+    }
+};
+
 // --- GERENCIAMENTO DE ESTADO LOCAL ---
-// Wrapper para facilitar acesso aos dados já carregados
 const DB = {
     getInventory: () => GithubDB.data ? GithubDB.data.inventory : [],
     getUsers: () => GithubDB.data ? GithubDB.data.users : [],
     
-    // Helper para pegar datas únicas disponíveis
     getUniqueDates: () => {
         const inventory = GithubDB.data ? GithubDB.data.inventory : [];
         const dates = [...new Set(inventory.map(item => item.date))];
-        // Ordena datas (assumindo formato DD/MM/YYYY)
         return dates.sort((a, b) => {
             const [da, ma, ya] = a.split('/');
             const [db, mb, yb] = b.split('/');
             return new Date(`${ya}-${ma}-${da}`) - new Date(`${yb}-${mb}-${db}`);
-        }).reverse(); // Mais recente primeiro
+        }).reverse();
     },
 
-    // Atualiza o objeto completo e manda salvar
     update: async (key, value) => {
         if (!GithubDB.data) return;
         const newData = { ...GithubDB.data, [key]: value };
@@ -155,7 +236,6 @@ const ui = {
             select.appendChild(option);
         });
 
-        // Tenta manter a seleção anterior se possível
         if (dates.includes(currentVal) || currentVal === 'ALL') {
             select.value = currentVal;
         }
@@ -163,15 +243,12 @@ const ui = {
 };
 
 // --- AUTENTICAÇÃO ---
-
 const auth = {
     user: null,
     
     init: () => {
-        // Tenta recuperar sessão, mas valida com o GitHub
         const saved = sessionStorage.getItem('current_user');
         if (saved) {
-            // Se tem sessão salva, precisamos carregar os dados do GitHub em background
             ui.showLoading(true, 'Conectando ao banco de dados...');
             GithubDB.fetchData().then(data => {
                 ui.showLoading(false);
@@ -194,11 +271,10 @@ const auth = {
         
         ui.showLoading(true, 'Verificando credenciais...');
         
-        // Carrega dados frescos do GitHub
         const data = await GithubDB.fetchData();
         ui.showLoading(false);
 
-        if (!data) return; // Erro já tratado no fetchData
+        if (!data) return;
 
         const user = data.users.find(x => x.username === u && x.password === p);
         
@@ -222,7 +298,6 @@ const auth = {
 };
 
 // --- ROTEADOR E UI ---
-
 const router = {
     navigate: (view) => {
         document.querySelectorAll('.view-section').forEach(el => el.classList.add('hidden'));
@@ -248,11 +323,13 @@ const router = {
         if (view === 'dashboard') dashboard.render();
         if (view === 'list') inventory.renderTable();
         if (view === 'users') users.render();
+        
+        // Se for para import, tenta carregar MasterData se ainda não carregou
+        if (view === 'import') MasterData.init();
     }
 };
 
 // --- LÓGICA DE INVENTÁRIO ---
-
 let previewData = [];
 
 const inventory = {
@@ -266,15 +343,36 @@ const inventory = {
         const physs = getLines('input-phys');
         const vals = getLines('input-val');
 
-        if (codes[0] === "") return alert("Cole os dados primeiro.");
+        if (codes[0] === "") return alert("Cole os dados primeiro (Pelo menos o código).");
 
-        previewData = codes.map((code, i) => {
-            if (!code) return null;
+        previewData = codes.map((codeRaw, i) => {
+            if (!codeRaw) return null;
+            const code = codeRaw.trim();
             
+            // 1. Descrição: Usa a digitada/colada OU busca no Excel
+            let description = descs[i] ? descs[i].trim() : '';
+            if ((!description || description === '') && MasterData.descriptions[code]) {
+                description = MasterData.descriptions[code];
+            }
+
+            // 2. Quantidades
             const sapQ = parseFloat((saps[i] || '0').replace(',', '.'));
             const physQ = parseFloat((physs[i] || '0').replace(',', '.'));
-            const rawVal = (vals[i] || '0').replace(/[R$\s]/g, '').replace(/\./g, '').replace(',', '.');
-            const sapVal = parseFloat(rawVal) || 0;
+            
+            // 3. Valor Total SAP: Usa o digitado OU calcula via Excel
+            let rawVal = (vals[i] || '').trim();
+            let sapVal = 0;
+
+            if (rawVal) {
+                // Se o usuário colou algo, usa o valor colado
+                sapVal = parseFloat(rawVal.replace(/[R$\s]/g, '').replace(/\./g, '').replace(',', '.')) || 0;
+            } else {
+                // Se está vazio, tenta calcular: Qtd SAP * Preço Unitário (do Excel)
+                const unitPrice = MasterData.prices[code];
+                if (unitPrice && !isNaN(unitPrice)) {
+                    sapVal = sapQ * unitPrice;
+                }
+            }
             
             const unitVal = sapQ !== 0 ? sapVal / sapQ : 0;
             const divQ = physQ - sapQ;
@@ -282,15 +380,15 @@ const inventory = {
 
             return {
                 id: Date.now() + Math.random(),
-                code: code.trim(),
-                desc: descs[i] || '',
+                code: code,
+                desc: description, // Descrição enriquecida
                 wh: whs[i] || 'GERAL',
                 sapQ,
                 physQ,
                 sapVal,
                 divQ,
                 divVal,
-                date: new Date().toLocaleDateString('pt-BR') // Garante formato DD/MM/AAAA
+                date: new Date().toLocaleDateString('pt-BR')
             };
         }).filter(x => x !== null);
 
@@ -304,6 +402,7 @@ const inventory = {
         tbody.innerHTML = previewData.map(item => `
             <tr class="hover:bg-gray-50 transition-colors">
                 <td class="px-4 py-2 text-gray-800 font-medium">${item.code}</td>
+                <td class="px-4 py-2 text-gray-500 text-xs">${item.desc}</td>
                 <td class="px-4 py-2 text-gray-500">${item.wh}</td>
                 <td class="px-4 py-2 text-right text-gray-600">${item.sapQ}</td>
                 <td class="px-4 py-2 text-right font-bold text-gray-800 bg-gray-50 border-l border-r">${item.physQ}</td>
@@ -334,30 +433,24 @@ const inventory = {
     },
 
     renderTable: () => {
-        // 1. Popula o filtro de datas
         const dates = DB.getUniqueDates();
         ui.populateDateSelect('list-date-filter', dates, true);
 
-        // 2. Obtém filtros atuais
         const search = document.getElementById('search-input').value.toLowerCase();
         const dateFilter = document.getElementById('list-date-filter').value;
 
-        // 3. Filtra os dados
         let data = DB.getInventory();
 
-        // Filtra por data se não for "ALL"
         if (dateFilter !== 'ALL') {
             data = data.filter(i => i.date === dateFilter);
         }
 
-        // Filtra por texto
         data = data.filter(i => 
             i.code.toLowerCase().includes(search) || 
             i.desc.toLowerCase().includes(search) || 
             i.wh.toLowerCase().includes(search)
         );
         
-        // Ordena por ID decrescente (mais novo primeiro)
         data.sort((a, b) => b.id - a.id);
 
         const tbody = document.getElementById('inventory-body');
@@ -371,7 +464,7 @@ const inventory = {
             <tr class="hover:bg-gray-50 transition-colors border-b last:border-0">
                 <td class="px-4 py-3 text-gray-500 text-xs">${item.date}</td>
                 <td class="px-4 py-3 font-medium text-gray-900">${item.code}</td>
-                <td class="px-4 py-3 text-gray-500 truncate max-w-xs" title="${item.desc}">${item.desc}</td>
+                <td class="px-4 py-3 text-gray-500 truncate max-w-xs text-xs" title="${item.desc}">${item.desc}</td>
                 <td class="px-4 py-3 text-gray-500">${item.wh}</td>
                 <td class="px-4 py-3 text-right text-gray-600">${item.sapQ}</td>
                 <td class="px-4 py-3 text-right font-bold text-gray-800 bg-gray-50">${item.physQ}</td>
@@ -424,26 +517,20 @@ const inventory = {
 };
 
 // --- DASHBOARD ---
-
 const dashboard = {
     chartInstance: null,
     
     render: () => {
-        // 1. Popula as datas (apenas se for a primeira vez ou se mudou)
         const dates = DB.getUniqueDates();
-        // Não queremos re-renderizar o select se o usuário já estiver interagindo com ele,
-        // mas queremos ter certeza que as opções existem.
         const select = document.getElementById('dashboard-date-filter');
         if (select.options.length <= 1 && dates.length > 0) {
             ui.populateDateSelect('dashboard-date-filter', dates, true);
         }
 
-        // 2. Filtra dados
         const selectedDate = select.value;
         const allData = DB.getInventory();
         const data = selectedDate === 'ALL' ? allData : allData.filter(i => i.date === selectedDate);
         
-        // 3. Calcula KPIs
         const totalItems = data.length;
         const itemsOk = data.filter(i => i.divQ === 0).length;
         const accuracy = totalItems ? ((itemsOk / totalItems) * 100).toFixed(1) : 0;
@@ -455,7 +542,6 @@ const dashboard = {
         document.getElementById('kpi-divergence').innerText = totalDivVal.toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'});
         document.getElementById('kpi-sap-value').innerText = totalSapVal.toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'});
 
-        // 4. Gráfico
         const whMap = {};
         data.forEach(i => {
             const wh = i.wh || 'N/A';
@@ -494,7 +580,6 @@ const dashboard = {
 };
 
 // --- USUÁRIOS ---
-
 const users = {
     render: () => {
         const list = DB.getUsers();
@@ -552,7 +637,6 @@ const users = {
 };
 
 // --- INICIALIZAÇÃO ---
-
 const app = {
     init: () => {
         document.getElementById('app-screen').classList.remove('hidden');
@@ -560,6 +644,9 @@ const app = {
         document.getElementById('user-role-display').innerText = auth.user.role === 'ADMIN' ? 'Administrador' : 'Balconista';
         document.getElementById('current-date').innerText = new Date().toLocaleDateString('pt-BR');
         
+        // Tenta carregar dados do Excel imediatamente ao iniciar o app
+        MasterData.init();
+
         if (auth.user.role !== 'ADMIN') {
             document.getElementById('nav-dashboard').classList.add('hidden');
             document.getElementById('nav-users').classList.add('hidden');
