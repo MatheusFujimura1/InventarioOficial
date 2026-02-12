@@ -1,5 +1,18 @@
 {
-  "inventory": [],
+  "inventory": [
+    {
+      "id": 1770913556014.825,
+      "code": "300500232338",
+      "desc": "TATATA",
+      "wh": "DP01",
+      "sapQ": 2,
+      "physQ": 1,
+      "sapVal": 20120,
+      "divQ": -1,
+      "divVal": -10060,
+      "date": "12/02/2026"
+    }
+  ],
   "users": [
     {
       "id": "root",
