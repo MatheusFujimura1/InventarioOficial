@@ -145,7 +145,9 @@ const MasterData = {
             // Ler Coluna A (Código) e B (Texto Breve)
             const rows = XLSX.utils.sheet_to_json(ws, {header: 1}); // Array de Arrays
             rows.forEach(row => {
-                const code = String(row[0]).trim(); // Coluna A
+                if (row[0] === undefined) return;
+                // FORÇA CONVERSÃO PARA STRING PARA GARANTIR O MATCH
+                const code = String(row[0]).trim(); 
                 const desc = row[1]; // Coluna B
                 if (code) MasterData.descriptions[code] = desc;
             });
@@ -160,15 +162,21 @@ const MasterData = {
             // Ler Coluna A (Código) e J (Indice 9 - Valor)
             const rows = XLSX.utils.sheet_to_json(ws, {header: 1});
             rows.forEach(row => {
-                const code = String(row[0]).trim(); // Coluna A
+                if (row[0] === undefined) return;
+                // FORÇA CONVERSÃO PARA STRING
+                const code = String(row[0]).trim();
                 const priceRaw = row[9]; // Coluna J (Indice 9)
                 let price = 0;
+                
                 if (typeof priceRaw === 'number') {
                     price = priceRaw;
                 } else if (typeof priceRaw === 'string') {
-                    // Tenta limpar formatação R$ 1.000,00
-                    price = parseFloat(priceRaw.replace(/[R$\s]/g, '').replace(/\./g, '').replace(',', '.'));
+                    // Limpeza pesada para garantir que vire número: remove R$, remove pontos de milhar, troca virgula decimal por ponto
+                    // Ex: "R$ 1.500,20" -> "1500.20"
+                    const cleanStr = priceRaw.replace(/[R$\s]/g, '').replace(/\./g, '').replace(',', '.');
+                    price = parseFloat(cleanStr);
                 }
+                
                 if (code && !isNaN(price)) MasterData.prices[code] = price;
             });
             console.log('Valores carregada:', Object.keys(MasterData.prices).length, 'itens.');
@@ -176,8 +184,11 @@ const MasterData = {
 
         MasterData.isLoaded = true;
         if(statusEl) {
-            statusEl.innerHTML = `<i data-lucide="check-circle" class="w-4 h-4 text-green-600"></i><span class="text-green-700 font-medium">Bases de dados carregadas e prontas!</span>`;
+            statusEl.innerHTML = `<i data-lucide="check-circle" class="w-4 h-4 text-green-600"></i><span class="text-green-700 font-medium">Bases de dados carregadas! Pode digitar.</span>`;
             lucide.createIcons();
+            
+            // Tenta rodar o autofill caso o usuário já tenha colado algo antes de carregar
+            inventory.triggerAutoFill();
         }
     }
 };
@@ -333,55 +344,67 @@ const router = {
 let previewData = [];
 
 const inventory = {
+    // Função separada para ser chamada no evento e na inicialização
+    triggerAutoFill: () => {
+        if (!MasterData.isLoaded) return;
+        
+        const codeInput = document.getElementById('input-code');
+        const sapInput = document.getElementById('input-sap');
+        const descInput = document.getElementById('input-desc');
+        const valInput = document.getElementById('input-val');
+
+        if (!codeInput) return;
+
+        const codes = codeInput.value.split('\n');
+        const saps = sapInput.value.split('\n');
+        
+        // Reconstroi as descrições
+        const newDescs = codes.map((codeRaw, i) => {
+            const code = codeRaw.trim();
+            if(!code) return '';
+            // Procura exato match
+            return MasterData.descriptions[code] || '';
+        });
+
+        // Reconstroi os valores
+        const newVals = codes.map((codeRaw, i) => {
+            const code = codeRaw.trim();
+            if(!code) return '';
+            
+            // Pega quantidade (Se vazio ou inválido, assume 0 para não gerar valor fantasma, ou 1 se preferir padrão)
+            const qtyStr = saps[i] ? saps[i].replace(',', '.') : '0';
+            let qty = parseFloat(qtyStr);
+            if (isNaN(qty)) qty = 0; // Se não tem quantidade, valor total é 0
+            
+            // Pega preço unitário
+            const unitPrice = MasterData.prices[code];
+            
+            if (unitPrice && !isNaN(unitPrice)) {
+                const total = unitPrice * qty;
+                return total.toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'});
+            }
+            return '';
+        });
+
+        // Atualiza os campos de Texto e Valor
+        descInput.value = newDescs.join('\n');
+        valInput.value = newVals.join('\n');
+    },
+
     setupListeners: () => {
-        // Função para preenchimento em tempo real
-        const autoFill = () => {
-            if (!MasterData.isLoaded) return;
-            
-            const codeInput = document.getElementById('input-code');
-            const sapInput = document.getElementById('input-sap');
-            const descInput = document.getElementById('input-desc');
-            const valInput = document.getElementById('input-val');
+        // Adiciona ouvintes para reagir à digitação IMEDIATAMENTE (input)
+        const codeInput = document.getElementById('input-code');
+        const sapInput = document.getElementById('input-sap');
 
-            const codes = codeInput.value.split('\n');
-            const saps = sapInput.value.split('\n');
-            
-            // Reconstroi as descrições
-            const newDescs = codes.map((codeRaw, i) => {
-                const code = codeRaw.trim();
-                if(!code) return '';
-                // Mantém o valor atual se o usuário digitou algo diferente e não é vazio,
-                // mas a prioridade é o preenchimento automatico se for compatível
-                return MasterData.descriptions[code] || '';
-            });
-
-            // Reconstroi os valores
-            const newVals = codes.map((codeRaw, i) => {
-                const code = codeRaw.trim();
-                if(!code) return '';
-                
-                // Pega quantidade
-                const qtyStr = saps[i] ? saps[i].replace(',', '.') : '0';
-                const qty = parseFloat(qtyStr) || 0;
-                
-                // Pega preço unitário
-                const unitPrice = MasterData.prices[code];
-                
-                if (unitPrice && !isNaN(unitPrice)) {
-                    const total = unitPrice * qty;
-                    return total.toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'});
-                }
-                return '';
-            });
-
-            // Só atualiza se tiver dados novos para evitar apagar o que o usuário está digitando manualmente
-            if (newDescs.some(d => d !== '')) descInput.value = newDescs.join('\n');
-            if (newVals.some(v => v !== '')) valInput.value = newVals.join('\n');
-        };
-
-        // Adiciona ouvintes para reagir à digitação
-        document.getElementById('input-code').addEventListener('input', autoFill);
-        document.getElementById('input-sap').addEventListener('input', autoFill);
+        if (codeInput) {
+            codeInput.addEventListener('input', inventory.triggerAutoFill);
+            // Também dispara se colar dados
+            codeInput.addEventListener('paste', () => setTimeout(inventory.triggerAutoFill, 100)); 
+        }
+        
+        if (sapInput) {
+            sapInput.addEventListener('input', inventory.triggerAutoFill);
+        }
     },
 
     processInput: () => {
@@ -400,7 +423,8 @@ const inventory = {
             if (!codeRaw) return null;
             const code = codeRaw.trim();
             
-            // 1. Descrição: Usa a digitada/colada OU busca no Excel
+            // 1. Descrição: Prioridade para o que está na caixa de texto (que foi preenchida pelo autoFill)
+            // Se estiver vazio, tenta buscar de novo no MasterData por segurança
             let description = descs[i] ? descs[i].trim() : '';
             if ((!description || description === '') && MasterData.descriptions[code]) {
                 description = MasterData.descriptions[code];
@@ -410,15 +434,15 @@ const inventory = {
             const sapQ = parseFloat((saps[i] || '0').replace(',', '.'));
             const physQ = parseFloat((physs[i] || '0').replace(',', '.'));
             
-            // 3. Valor Total SAP: Usa o digitado OU calcula via Excel
+            // 3. Valor Total SAP: Usa o digitado/calculado na tela
             let rawVal = (vals[i] || '').trim();
             let sapVal = 0;
 
             if (rawVal) {
-                // Se o usuário colou algo, usa o valor colado
+                // Remove R$ e converte para float
                 sapVal = parseFloat(rawVal.replace(/[R$\s]/g, '').replace(/\./g, '').replace(',', '.')) || 0;
             } else {
-                // Se está vazio, tenta calcular: Qtd SAP * Preço Unitário (do Excel)
+                // Fallback: tenta calcular se estiver vazio
                 const unitPrice = MasterData.prices[code];
                 if (unitPrice && !isNaN(unitPrice)) {
                     sapVal = sapQ * unitPrice;
@@ -440,7 +464,7 @@ const inventory = {
                 divQ,
                 divVal,
                 date: new Date().toLocaleDateString('pt-BR'),
-                // NOVOS CAMPOS: REGISTRO DE USUÁRIO
+                // NOVOS CAMPOS: REGISTRO DE USUÁRIO (NOME E CARGO)
                 registeredBy: auth.user.name,
                 registeredRole: auth.user.role === 'ADMIN' ? 'Administrador' : 'Balconista'
             };
