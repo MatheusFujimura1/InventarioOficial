@@ -153,12 +153,11 @@ const MasterData = {
     isLoaded: false,
 
     init: async () => {
-        if (MasterData.isLoaded) return;
+        // Permitir recarga se chamado manualmente
         
         const statusEl = document.getElementById('master-data-status');
         if(statusEl) {
-            statusEl.classList.remove('hidden');
-            statusEl.innerHTML = `<div class="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-600"></div><span class="text-gray-600">Baixando Valores.xlsx...</span>`;
+            statusEl.innerHTML = `<div class="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-600"></div><span class="text-gray-600">Baixando Valores.xlsx (Base Tereos)...</span>`;
         }
 
         // --- CARREGAR DADOS APENAS DE VALORES.XLSX ---
@@ -172,6 +171,10 @@ const MasterData = {
             const rows = XLSX.utils.sheet_to_json(ws, {header: 1});
             
             let count = 0;
+            // Limpa dados anteriores para garantir atualização
+            MasterData.descriptions = {};
+            MasterData.prices = {};
+
             rows.forEach(row => {
                 if (row[0] === undefined) return;
                 const code = DataUtils.normalizeCode(row[0]);
@@ -194,18 +197,22 @@ const MasterData = {
                     count++;
                 }
             });
-            console.log(`[Valores.xlsx] Processados ${count} itens (Descrições e Preços).`);
-        } else {
-            console.warn('[Valores.xlsx] Arquivo não encontrado ou erro no download.');
-        }
-
-        MasterData.isLoaded = true;
-        if(statusEl) {
-            statusEl.innerHTML = `<i data-lucide="check-circle" class="w-4 h-4 text-green-600"></i><span class="text-green-700 font-medium">Base Valores.xlsx sincronizada!</span>`;
-            lucide.createIcons();
+            console.log(`[Valores.xlsx] Sincronizado. ${count} materiais carregados.`);
             
+            MasterData.isLoaded = true;
+            if(statusEl) {
+                statusEl.innerHTML = `<i data-lucide="check-circle" class="w-4 h-4 text-green-600"></i><span class="text-green-700 font-medium">Base Tereos sincronizada! (${count} itens)</span>`;
+                lucide.createIcons();
+            }
             // Tenta processar o que já estiver na tela
             inventory.triggerAutoFill();
+
+        } else {
+            console.warn('[Valores.xlsx] Arquivo não encontrado ou erro no download.');
+            if(statusEl) {
+                statusEl.innerHTML = `<i data-lucide="alert-circle" class="w-4 h-4 text-red-600"></i><span class="text-red-700 font-medium">Erro ao baixar Valores.xlsx</span>`;
+                lucide.createIcons();
+            }
         }
     }
 };
@@ -353,7 +360,7 @@ const router = {
         if (view === 'users') users.render();
         
         // Se for para import, tenta carregar MasterData se ainda não carregou
-        if (view === 'import') MasterData.init();
+        if (view === 'import' && !MasterData.isLoaded) MasterData.init();
     }
 };
 
@@ -607,7 +614,7 @@ const inventory = {
         const url = window.URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = `inventario_vertente_${dateFilter === 'ALL' ? 'geral' : dateFilter.replace(/\//g, '-')}.csv`;
+        a.download = `inventario_tereos_${dateFilter === 'ALL' ? 'geral' : dateFilter.replace(/\//g, '-')}.csv`;
         a.click();
     }
 };
