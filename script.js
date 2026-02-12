@@ -74,27 +74,29 @@ const GithubDB = {
         }
     },
 
-    // Buscar arquivo binário (Excel) do GitHub
+    // Buscar arquivo binário (Excel) do GitHub - MODO RAW (CORRIGIDO)
     fetchBinaryFile: async (filename) => {
         try {
             const url = `https://api.github.com/repos/${GITHUB_CONFIG.OWNER}/${GITHUB_CONFIG.REPO}/contents/${filename}?ref=${GITHUB_CONFIG.BRANCH}`;
+            
+            // Usando header para pegar conteúdo RAW (bytes direto) ao invés de JSON Base64
+            // Isso resolve problemas com arquivos maiores que 1MB
             const response = await fetch(url, {
                 headers: {
                     'Authorization': `token ${GITHUB_CONFIG.TOKEN}`,
-                    'Accept': 'application/vnd.github.v3+json'
+                    'Accept': 'application/vnd.github.v3.raw' 
                 }
             });
 
-            if (!response.ok) return null;
-
-            const json = await response.json();
-            const binaryString = atob(json.content.replace(/\s/g, ''));
-            const len = binaryString.length;
-            const bytes = new Uint8Array(len);
-            for (let i = 0; i < len; i++) {
-                bytes[i] = binaryString.charCodeAt(i);
+            if (!response.ok) {
+                console.warn(`GitHub Raw Error: ${response.status}`);
+                return null;
             }
-            return bytes;
+
+            // Pega o buffer direto
+            const buffer = await response.arrayBuffer();
+            return new Uint8Array(buffer);
+
         } catch (error) {
             console.error(`Erro ao baixar ${filename}:`, error);
             return null;
@@ -159,7 +161,7 @@ const MasterData = {
             const wb = XLSX.read(valBuffer, {type: 'array'});
             MasterData.processWorkbook(wb, 'GitHub');
         } else {
-            if(statusEl) statusEl.innerHTML = `<i data-lucide="alert-circle" class="w-4 h-4 text-red-600"></i><span class="text-red-700 font-medium">Não encontrado no GitHub. Use "Carregar do PC".</span>`;
+            if(statusEl) statusEl.innerHTML = `<i data-lucide="alert-circle" class="w-4 h-4 text-red-600"></i><span class="text-red-700 font-medium">Erro no GitHub. Use "Carregar do PC".</span>`;
             lucide.createIcons();
         }
     },
@@ -260,22 +262,12 @@ const dashboard = {
 
         // --- CÁLCULOS KPI ---
         const totalItems = filteredData.length;
-        
-        // Itens com divergência (Qtd Física diferente de Qtd SAP)
         const divergentItems = filteredData.filter(i => i.divQ !== 0);
-        
-        // Acuracidade: (Itens Certos / Total) * 100
-        const accuracy = totalItems > 0 
-            ? ((totalItems - divergentItems.length) / totalItems) * 100 
-            : 0;
-
-        // Divergência Financeira Total (Soma dos valores absolutos ou líquidos? Normalmente líquido para financeiro)
+        const accuracy = totalItems > 0 ? ((totalItems - divergentItems.length) / totalItems) * 100 : 0;
         const totalDivergenceVal = filteredData.reduce((acc, curr) => acc + curr.divVal, 0);
-        
-        // Valor Total SAP (Quanto vale o estoque teórico)
         const totalSapVal = filteredData.reduce((acc, curr) => acc + curr.sapVal, 0);
 
-        // --- ATUALIZAR DOM ---
+        // --- ATUALIZAR KPIs ---
         document.getElementById('kpi-total').innerText = totalItems;
         document.getElementById('kpi-accuracy').innerText = `${accuracy.toFixed(1)}%`;
         
@@ -287,6 +279,56 @@ const dashboard = {
 
         // --- GRÁFICO (Chart.js) ---
         dashboard.renderChart(filteredData);
+        
+        // --- RANKING DE USUÁRIOS ---
+        dashboard.renderRanking(filteredData);
+    },
+
+    renderRanking: (data) => {
+        const rankContainer = document.getElementById('users-ranking-list');
+        if (!rankContainer) return;
+
+        // Contar registros por usuário
+        const counts = {};
+        data.forEach(item => {
+            const user = item.registeredBy || 'Desconhecido';
+            counts[user] = (counts[user] || 0) + 1;
+        });
+
+        // Converter para array e ordenar
+        const sorted = Object.entries(counts)
+            .sort((a, b) => b[1] - a[1]) // Maior para menor
+            .slice(0, 5); // Top 5
+
+        if (sorted.length === 0) {
+            rankContainer.innerHTML = '<p class="text-sm text-gray-400 text-center py-4">Sem dados</p>';
+            return;
+        }
+
+        rankContainer.innerHTML = sorted.map((item, index) => {
+            const name = item[0];
+            const count = item[1];
+            // Estilos para o Top 3
+            let badgeClass = "bg-gray-100 text-gray-600";
+            let icon = "";
+            if (index === 0) { badgeClass = "bg-yellow-100 text-yellow-700"; icon = "👑"; }
+            else if (index === 1) { badgeClass = "bg-slate-200 text-slate-700"; icon = "🥈"; }
+            else if (index === 2) { badgeClass = "bg-orange-100 text-orange-700"; icon = "🥉"; }
+
+            return `
+                <div class="flex items-center justify-between p-3 hover:bg-gray-50 rounded-lg transition-colors border-b last:border-0 border-gray-50">
+                    <div class="flex items-center gap-3">
+                        <div class="w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm ${badgeClass}">
+                           ${icon || (index + 1)}
+                        </div>
+                        <span class="font-medium text-gray-700 text-sm">${name}</span>
+                    </div>
+                    <span class="font-bold text-gray-900 bg-white border border-gray-200 px-2 py-1 rounded text-xs">
+                        ${count} itens
+                    </span>
+                </div>
+            `;
+        }).join('');
     },
 
     renderChart: (data) => {
@@ -297,14 +339,13 @@ const dashboard = {
         const warehouseGroups = {};
         data.forEach(item => {
             if (!warehouseGroups[item.wh]) warehouseGroups[item.wh] = 0;
-            warehouseGroups[item.wh] += item.divVal; // Soma o valor da divergência
+            warehouseGroups[item.wh] += item.divVal; 
         });
 
         const labels = Object.keys(warehouseGroups);
         const values = Object.values(warehouseGroups);
-        const backgroundColors = values.map(v => v < 0 ? '#ef4444' : '#3b82f6'); // Vermelho negativo, Azul positivo
+        const backgroundColors = values.map(v => v < 0 ? '#ef4444' : '#3b82f6'); 
 
-        // Destruir gráfico anterior se existir
         if (dashboard.chartInstance) {
             dashboard.chartInstance.destroy();
         }
