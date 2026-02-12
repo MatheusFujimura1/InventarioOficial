@@ -57,6 +57,13 @@
       "username": "mrbarbosa",
       "password": "Tereos@2026+",
       "role": "USER"
+    },
+    {
+      "id": "1770924362511",
+      "name": "Paulo Cesar Laureano",
+      "username": "plaureano",
+      "password": "Esporte@3000",
+      "role": "ADMIN"
     }
   ]
 }
