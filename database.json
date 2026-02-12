@@ -27,6 +27,20 @@
       "date": "12/02/2026",
       "registeredBy": "Matheus Fujimura",
       "registeredRole": "Administrador"
+    },
+    {
+      "id": 1770924519540.8564,
+      "code": "301500157784",
+      "desc": "QUINTA ROD;190MM;HD TECNOLOGIA/CT1000",
+      "wh": "DP04",
+      "sapQ": 2,
+      "physQ": 2,
+      "sapVal": 19335.75,
+      "divQ": 0,
+      "divVal": 0,
+      "date": "12/02/2026",
+      "registeredBy": "Paulo Cesar Laureano",
+      "registeredRole": "Administrador"
     }
   ],
   "users": [
