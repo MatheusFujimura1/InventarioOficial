@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Inventário Inteligente SAP</title>
+    
+    <!-- Tailwind CSS (Visual) -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Ícones (Lucide) -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    
+    <!-- Gráficos (Chart.js) -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <!-- Nosso CSS Personalizado -->
+    <link rel="stylesheet" href="style.css">
+
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        brand: { 50: '#f0f9ff', 100: '#e0f2fe', 500: '#0ea5e9', 600: '#0284c7', 700: '#0369a1', 900: '#0c4a6e' }
+                    }
+                }
+            }
+        }
+    </script>
+<script type="importmap">
+{
+  "imports": {
+    "react": "https://esm.sh/react@^19.2.4",
+    "lucide-react": "https://esm.sh/lucide-react@^0.563.0",
+    "react/": "https://esm.sh/react@^19.2.4/",
+    "recharts": "https://esm.sh/recharts@^3.7.0"
+  }
+}
+</script>
+<link rel="stylesheet" href="/index.css">
+</head>
+<body class="bg-gray-50 text-gray-900 font-sans antialiased h-screen flex flex-col overflow-hidden">
+
+    <!-- OVERLAY DE CARREGAMENTO -->
+    <div id="loading-overlay" class="hidden fixed inset-0 z-[60] bg-slate-900/80 flex flex-col items-center justify-center text-white backdrop-blur-sm">
+        <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-white mb-4"></div>
+        <p id="loading-text" class="text-lg font-semibold">Processando...</p>
+    </div>
+
+    <!-- TELA DE LOGIN -->
+    <div id="login-screen" class="hidden fixed inset-0 z-50 bg-slate-900 flex items-center justify-center p-4">
+        <div class="bg-white rounded-lg shadow-2xl w-full max-w-md overflow-hidden animate-fadeIn">
+            <div class="p-8 bg-brand-600 text-center">
+                <i data-lucide="lock" class="w-16 h-16 text-white mx-auto mb-4"></i>
+                <h1 class="text-2xl font-bold text-white">Inventário Vertente</h1>
+                <p class="text-brand-100 mt-2 text-sm">Acesso Restrito (Nuvem)</p>
+            </div>
+            <form id="login-form" class="p-8 space-y-6">
+                <div id="login-error" class="hidden bg-red-50 text-red-600 text-sm p-3 rounded-md text-center border border-red-200"></div>
+                <div>
+                    <label class="block text-sm font-semibold text-gray-700">Usuário</label>
+                    <div class="relative mt-1">
+                        <i data-lucide="user" class="absolute left-3 top-2.5 w-5 h-5 text-gray-400"></i>
+                        <input type="text" id="username" class="w-full pl-10 p-2 border rounded focus:ring-2 focus:ring-brand-500 outline-none" placeholder="Ex: mvfujimura" required>
+                    </div>
+                </div>
+                <div>
+                    <label class="block text-sm font-semibold text-gray-700">Senha</label>
+                    <div class="relative mt-1">
+                        <i data-lucide="key" class="absolute left-3 top-2.5 w-5 h-5 text-gray-400"></i>
+                        <input type="password" id="password" class="w-full pl-10 p-2 border rounded focus:ring-2 focus:ring-brand-500 outline-none" placeholder="Sua senha" required>
+                    </div>
+                </div>
+                <button type="submit" class="w-full bg-brand-600 hover:bg-brand-700 text-white font-bold py-3 rounded-lg flex justify-center items-center gap-2 transition-transform active:scale-95">
+                    Entrar <i data-lucide="arrow-right" class="w-5 h-5"></i>
+                </button>
+            </form>
+            <div class="bg-gray-50 p-4 text-center text-xs text-gray-500 border-t">
+                Sistema Integrado GitHub &copy; 2025
+            </div>
+        </div>
+    </div>
+
+    <!-- APLICAÇÃO PRINCIPAL -->
+    <div id="app-screen" class="hidden flex h-full">
+        
+        <!-- SIDEBAR -->
+        <aside class="w-64 bg-slate-900 text-slate-100 flex flex-col shadow-xl z-10">
+            <div class="p-6 border-b border-slate-700">
+                <h1 class="text-xl font-bold flex items-center gap-2">
+                    <span class="w-8 h-8 bg-brand-500 rounded flex items-center justify-center text-white">V</span> Vertente
+                </h1>
+                <div class="mt-6 flex items-center gap-3 bg-slate-800 p-3 rounded-lg border border-slate-700">
+                    <div id="user-avatar" class="w-10 h-10 rounded-full bg-brand-700 flex items-center justify-center font-bold text-sm text-white">U</div>
+                    <div class="overflow-hidden">
+                        <p id="user-name-display" class="text-sm font-bold truncate text-white">Usuário</p>
+                        <p id="user-role-display" class="text-xs text-brand-400 font-medium">Cargo</p>
+                    </div>
+                </div>
+            </div>
+            <nav class="flex-1 p-4 space-y-2">
+                <button onclick="router.navigate('dashboard')" class="nav-btn w-full flex items-center gap-3 px-4 py-3 rounded hover:bg-slate-800 text-slate-400 transition-colors" id="nav-dashboard">
+                    <i data-lucide="layout-dashboard" class="w-5 h-5"></i> Dashboard
+                </button>
+                <button onclick="router.navigate('import')" class="nav-btn w-full flex items-center gap-3 px-4 py-3 rounded hover:bg-slate-800 text-slate-400 transition-colors" id="nav-import">
+                    <i data-lucide="import" class="w-5 h-5"></i> Registrar / Importar
+                </button>
+                <button onclick="router.navigate('list')" class="nav-btn w-full flex items-center gap-3 px-4 py-3 rounded hover:bg-slate-800 text-slate-400 transition-colors" id="nav-list">
+                    <i data-lucide="list" class="w-5 h-5"></i> Base de Dados
+                </button>
+                <button onclick="router.navigate('users')" class="nav-btn w-full flex items-center gap-3 px-4 py-3 rounded hover:bg-slate-800 text-slate-400 transition-colors" id="nav-users">
+                    <i data-lucide="users" class="w-5 h-5"></i> Gestão de Usuários
+                </button>
+            </nav>
+            <div class="p-4 border-t border-slate-800 space-y-2">
+                <button onclick="auth.logout()" class="w-full flex items-center gap-3 px-4 py-2 text-red-400 hover:text-red-300 hover:bg-slate-800 rounded transition-colors">
+                    <i data-lucide="log-out" class="w-5 h-5"></i> Sair
+                </button>
+            </div>
+        </aside>
+
+        <!-- CONTEÚDO -->
+        <main class="flex-1 overflow-y-auto bg-gray-50 p-8">
+            <header class="mb-8 flex justify-between items-center">
+                <div>
+                    <h2 id="page-title" class="text-2xl font-bold text-gray-800">Visão Geral</h2>
+                    <p id="page-subtitle" class="text-sm text-gray-500">Bem-vindo ao sistema</p>
+                </div>
+                <div class="text-right hidden md:block">
+                    <p class="text-xs text-gray-400">Data de hoje</p>
+                    <p class="text-sm font-medium text-gray-600" id="current-date">--/--/----</p>
+                </div>
+            </header>
+
+            <!-- VIEW: DASHBOARD -->
+            <div id="view-dashboard" class="view-section hidden space-y-6 animate-fadeIn">
+                <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+                    <div class="bg-white p-5 rounded-lg border-l-4 border-blue-500 shadow-sm">
+                        <div class="flex justify-between">
+                            <div>
+                                <p class="text-gray-500 text-xs uppercase font-bold">Total Materiais</p>
+                                <h4 id="kpi-total" class="text-2xl font-bold text-gray-800 mt-1">0</h4>
+                            </div>
+                            <i data-lucide="box" class="text-blue-200 w-8 h-8"></i>
+                        </div>
+                    </div>
+                    <div class="bg-white p-5 rounded-lg border-l-4 border-green-500 shadow-sm">
+                        <div class="flex justify-between">
+                            <div>
+                                <p class="text-gray-500 text-xs uppercase font-bold">Acuracidade</p>
+                                <h4 id="kpi-accuracy" class="text-2xl font-bold text-gray-800 mt-1">0%</h4>
+                            </div>
+                            <i data-lucide="check-circle-2" class="text-green-200 w-8 h-8"></i>
+                        </div>
+                    </div>
+                    <div class="bg-white p-5 rounded-lg border-l-4 border-red-500 shadow-sm">
+                        <div class="flex justify-between">
+                            <div>
+                                <p class="text-gray-500 text-xs uppercase font-bold">Divergência (R$)</p>
+                                <h4 id="kpi-divergence" class="text-2xl font-bold text-gray-800 mt-1">R$ 0,00</h4>
+                            </div>
+                            <i data-lucide="trending-down" class="text-red-200 w-8 h-8"></i>
+                        </div>
+                    </div>
+                    <div class="bg-white p-5 rounded-lg border-l-4 border-emerald-500 shadow-sm">
+                        <div class="flex justify-between">
+                            <div>
+                                <p class="text-gray-500 text-xs uppercase font-bold">Valor Total SAP</p>
+                                <h4 id="kpi-sap-value" class="text-2xl font-bold text-gray-800 mt-1">R$ 0,00</h4>
+                            </div>
+                            <i data-lucide="dollar-sign" class="text-emerald-200 w-8 h-8"></i>
+                        </div>
+                    </div>
+                </div>
+                <div class="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
+                    <h3 class="font-bold mb-4 text-gray-700">Divergência Financeira por Depósito</h3>
+                    <div class="h-64 relative w-full">
+                        <canvas id="chart-divergence"></canvas>
+                    </div>
+                </div>
+            </div>
+
+            <!-- VIEW: IMPORT -->
+            <div id="view-import" class="view-section hidden space-y-6 animate-fadeIn">
+                <div class="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
+                    <h2 class="text-xl font-bold mb-4 flex gap-2 items-center text-gray-800">
+                        <i data-lucide="clipboard" class="text-brand-600"></i> 
+                        Importação em Massa (Copiar e Colar)
+                    </h2>
+                    <div class="bg-blue-50 p-4 rounded-md mb-6 text-sm text-blue-800 flex gap-2 border border-blue-100">
+                        <i data-lucide="info" class="w-5 h-5"></i>
+                        <p>Copie as colunas diretamente do Excel/SAP e cole nos campos correspondentes abaixo.</p>
+                    </div>
+                    
+                    <div class="grid grid-cols-1 md:grid-cols-6 gap-4 mb-6">
+                        <div class="flex flex-col"><label class="text-xs font-bold mb-1 text-gray-600">Material (Código)</label><textarea id="input-code" class="input-area" placeholder="3005..."></textarea></div>
+                        <div class="flex flex-col"><label class="text-xs font-bold mb-1 text-gray-600">Descrição</label><textarea id="input-desc" class="input-area" placeholder="Texto breve..."></textarea></div>
+                        <div class="flex flex-col"><label class="text-xs font-bold mb-1 text-gray-600">Depósito</label><textarea id="input-wh" class="input-area" placeholder="DAGR..."></textarea></div>
+                        <div class="flex flex-col"><label class="text-xs font-bold mb-1 text-gray-600">Qtd SAP</label><textarea id="input-sap" class="input-area" placeholder="10..."></textarea></div>
+                        <div class="flex flex-col"><label class="text-xs font-bold mb-1 text-gray-600">Contagem Física</label><textarea id="input-phys" class="input-area" placeholder="8..."></textarea></div>
+                        <div class="flex flex-col"><label class="text-xs font-bold mb-1 text-gray-600">Valor Total (R$)</label><textarea id="input-val" class="input-area" placeholder="R$ 1.200,00..."></textarea></div>
+                    </div>
+                    <div class="flex justify-end">
+                        <button onclick="inventory.processInput()" class="bg-brand-600 text-white px-6 py-2 rounded shadow-sm hover:bg-brand-700 flex items-center gap-2 font-medium transition-colors">
+                            <i data-lucide="arrow-down"></i> Processar Divergências
+                        </button>
+                    </div>
+                </div>
+
+                <div id="import-preview" class="hidden bg-white p-6 rounded-lg shadow-sm border border-gray-200 animate-fadeIn">
+                    <div class="flex justify-between mb-4 items-center">
+                        <h3 class="font-bold text-lg text-gray-800">Pré-visualização dos Dados</h3>
+                        <div class="flex gap-2">
+                            <button onclick="inventory.clearPreview()" class="text-red-600 px-4 py-2 text-sm hover:bg-red-50 rounded border border-transparent hover:border-red-100 transition-colors">Descartar</button>
+                            <button onclick="inventory.savePreview()" class="bg-green-600 text-white px-4 py-2 text-sm rounded shadow-sm hover:bg-green-700 flex items-center gap-2 font-medium transition-colors">
+                                <i data-lucide="save"></i> Salvar na Base (GitHub)
+                            </button>
+                        </div>
+                    </div>
+                    <div class="overflow-x-auto border rounded-lg">
+                        <table class="min-w-full text-sm divide-y divide-gray-200">
+                            <thead class="bg-gray-50">
+                                <tr>
+                                    <th class="px-4 py-3 text-left font-semibold text-gray-600">Material</th>
+                                    <th class="px-4 py-3 text-left font-semibold text-gray-600">Depósito</th>
+                                    <th class="px-4 py-3 text-right font-semibold text-gray-600">Qtd SAP</th>
+                                    <th class="px-4 py-3 text-right font-semibold text-gray-600">Físico</th>
+                                    <th class="px-4 py-3 text-right font-semibold text-gray-600">Divergência (R$)</th>
+                                </tr>
+                            </thead>
+                            <tbody id="preview-body" class="divide-y divide-gray-100 bg-white"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- VIEW: LIST -->
+            <div id="view-list" class="view-section hidden space-y-6 animate-fadeIn">
+                <div class="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
+                    <div class="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
+                        <div class="relative w-full md:w-96">
+                            <i data-lucide="search" class="absolute left-3 top-2.5 text-gray-400 w-4 h-4"></i>
+                            <input type="text" id="search-input" onkeyup="inventory.renderTable()" placeholder="Buscar material, depósito..." class="w-full pl-10 pr-4 py-2 border rounded focus:ring-2 focus:ring-brand-500 outline-none">
+                        </div>
+                        <div class="flex gap-2 w-full md:w-auto">
+                            <button onclick="inventory.clearAll()" class="flex-1 md:flex-none text-red-600 px-4 py-2 hover:bg-red-50 rounded border border-red-200 text-sm font-medium transition-colors flex items-center gap-2 justify-center">
+                                <i data-lucide="trash-2" class="w-4 h-4"></i> Limpar Tudo
+                            </button>
+                            <button onclick="inventory.exportCSV()" class="flex-1 md:flex-none text-green-700 px-4 py-2 hover:bg-green-50 rounded border border-green-200 flex gap-2 items-center justify-center text-sm font-medium transition-colors">
+                                <i data-lucide="download" class="w-4 h-4"></i> Exportar Excel
+                            </button>
+                        </div>
+                    </div>
+                    <div class="overflow-x-auto border rounded-lg">
+                        <table class="min-w-full text-sm divide-y divide-gray-200">
+                            <thead class="bg-gray-50">
+                                <tr>
+                                    <th class="px-4 py-3 text-left font-semibold text-gray-600">Material</th>
+                                    <th class="px-4 py-3 text-left font-semibold text-gray-600">Descrição</th>
+                                    <th class="px-4 py-3 text-left font-semibold text-gray-600">Depósito</th>
+                                    <th class="px-4 py-3 text-right font-semibold text-gray-600">Qtd SAP</th>
+                                    <th class="px-4 py-3 text-right font-semibold text-gray-600">Físico</th>
+                                    <th class="px-4 py-3 text-right font-semibold text-gray-600">Div (Qtd)</th>
+                                    <th class="px-4 py-3 text-right font-semibold text-gray-600">Div (R$)</th>
+                                    <th class="px-4 py-3"></th>
+                                </tr>
+                            </thead>
+                            <tbody id="inventory-body" class="bg-white divide-y divide-gray-100"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- VIEW: USERS -->
+            <div id="view-users" class="view-section hidden space-y-6 animate-fadeIn">
+                <div class="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
+                    <h3 class="font-bold mb-4 text-xl flex items-center gap-2">
+                        <i data-lucide="users-round" class="text-brand-600"></i> Gerenciar Equipe (Salvo no GitHub)
+                    </h3>
+                    
+                    <div class="bg-gray-50 p-5 rounded-lg border border-gray-200 mb-8">
+                        <h4 class="text-sm font-bold text-gray-700 mb-3 uppercase">Adicionar Novo Usuário</h4>
+                        <form onsubmit="users.add(event)" class="grid grid-cols-1 md:grid-cols-5 gap-4">
+                            <input type="text" id="new-user-name" placeholder="Nome Completo" class="p-2 border rounded focus:ring-2 focus:ring-brand-500 outline-none md:col-span-2" required>
+                            <input type="text" id="new-user-login" placeholder="Login (ex: jsilva)" class="p-2 border rounded focus:ring-2 focus:ring-brand-500 outline-none" required>
+                            <input type="text" id="new-user-pass" placeholder="Senha" class="p-2 border rounded focus:ring-2 focus:ring-brand-500 outline-none" required>
+                            <select id="new-user-role" class="p-2 border rounded focus:ring-2 focus:ring-brand-500 outline-none">
+                                <option value="USER">Balconista</option>
+                                <option value="ADMIN">Administrador</option>
+                            </select>
+                            <button type="submit" class="bg-brand-600 text-white rounded font-bold hover:bg-brand-700 transition-colors flex items-center justify-center gap-2 md:col-start-5">
+                                <i data-lucide="plus"></i> Adicionar
+                            </button>
+                        </form>
+                    </div>
+
+                    <div class="overflow-x-auto border rounded-lg">
+                        <table class="min-w-full text-sm divide-y divide-gray-200">
+                            <thead class="bg-gray-50">
+                                <tr>
+                                    <th class="px-4 py-3 text-left font-semibold text-gray-600">Nome</th>
+                                    <th class="px-4 py-3 text-left font-semibold text-gray-600">Login</th>
+                                    <th class="px-4 py-3 text-left font-semibold text-gray-600">Permissão</th>
+                                    <th class="px-4 py-3 text-right font-semibold text-gray-600">Ação</th>
+                                </tr>
+                            </thead>
+                            <tbody id="users-body" class="divide-y divide-gray-100 bg-white"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+        </main>
+    </div>
+
+    <!-- Nosso Javascript -->
+    <script src="script.js"></script>
+<script type="module" src="/index.tsx"></script>
+</body>
+</html>

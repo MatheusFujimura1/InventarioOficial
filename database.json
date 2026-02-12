@@ -1,0 +1,12 @@
+{
+  "inventory": [],
+  "users": [
+    {
+      "id": "root",
+      "name": "Matheus Fujimura",
+      "username": "mvfujimura",
+      "password": "Vertente@2025",
+      "role": "ADMIN"
+    }
+  ]
+}
