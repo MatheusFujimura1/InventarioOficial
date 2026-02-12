@@ -14,6 +14,9 @@
     <!-- Gráficos (Chart.js) -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
+    <!-- SheetJS (Para ler Excel) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+
     <!-- Nosso CSS Personalizado -->
     <link rel="stylesheet" href="style.css">
 
@@ -61,7 +64,7 @@
                     <label class="block text-sm font-semibold text-gray-700">Usuário</label>
                     <div class="relative mt-1">
                         <i data-lucide="user" class="absolute left-3 top-2.5 w-5 h-5 text-gray-400"></i>
-                        <input type="text" id="username" class="w-full pl-10 p-2 border rounded focus:ring-2 focus:ring-brand-500 outline-none" placeholder="Ex: mvfujimura" required>
+                        <input type="text" id="username" class="w-full pl-10 p-2 border rounded focus:ring-2 focus:ring-brand-500 outline-none" placeholder="Login do usuário" required>
                     </div>
                 </div>
                 <div>
@@ -198,24 +201,34 @@
                 <div class="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
                     <h2 class="text-xl font-bold mb-4 flex gap-2 items-center text-gray-800">
                         <i data-lucide="clipboard" class="text-brand-600"></i> 
-                        Importação em Massa (Copiar e Colar)
+                        Importação e Conferência Automática
                     </h2>
+                    
+                    <!-- Status do Carregamento das Planilhas -->
+                    <div id="master-data-status" class="hidden mb-4 p-3 bg-gray-50 rounded-md border text-sm flex items-center gap-2">
+                        <div class="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-600"></div>
+                        <span class="text-gray-600">Carregando bases de dados do Excel (BaseTanabi e Valores)...</span>
+                    </div>
+
                     <div class="bg-blue-50 p-4 rounded-md mb-6 text-sm text-blue-800 flex gap-2 border border-blue-100">
-                        <i data-lucide="info" class="w-5 h-5"></i>
-                        <p>Copie as colunas diretamente do Excel/SAP e cole nos campos correspondentes abaixo.</p>
+                        <i data-lucide="info" class="w-5 h-5 flex-shrink-0"></i>
+                        <p>
+                            Cole os códigos e quantidades. 
+                            <strong>O sistema buscará automaticamente:</strong> a Descrição (BaseTanabi) e o Valor Unitário (Valores.xlsx) para calcular o total.
+                        </p>
                     </div>
                     
                     <div class="grid grid-cols-1 md:grid-cols-6 gap-4 mb-6">
                         <div class="flex flex-col"><label class="text-xs font-bold mb-1 text-gray-600">Material (Código)</label><textarea id="input-code" class="input-area" placeholder="3005..."></textarea></div>
-                        <div class="flex flex-col"><label class="text-xs font-bold mb-1 text-gray-600">Descrição</label><textarea id="input-desc" class="input-area" placeholder="Texto breve..."></textarea></div>
+                        <div class="flex flex-col"><label class="text-xs font-bold mb-1 text-gray-600">Descrição (Auto)</label><textarea id="input-desc" class="input-area bg-gray-50" placeholder="Será preenchido automaticamente..."></textarea></div>
                         <div class="flex flex-col"><label class="text-xs font-bold mb-1 text-gray-600">Depósito</label><textarea id="input-wh" class="input-area" placeholder="DAGR..."></textarea></div>
                         <div class="flex flex-col"><label class="text-xs font-bold mb-1 text-gray-600">Qtd SAP</label><textarea id="input-sap" class="input-area" placeholder="10..."></textarea></div>
                         <div class="flex flex-col"><label class="text-xs font-bold mb-1 text-gray-600">Contagem Física</label><textarea id="input-phys" class="input-area" placeholder="8..."></textarea></div>
-                        <div class="flex flex-col"><label class="text-xs font-bold mb-1 text-gray-600">Valor Total (R$)</label><textarea id="input-val" class="input-area" placeholder="R$ 1.200,00..."></textarea></div>
+                        <div class="flex flex-col"><label class="text-xs font-bold mb-1 text-gray-600">Valor Total (Auto/R$)</label><textarea id="input-val" class="input-area bg-gray-50" placeholder="Será calculado..."></textarea></div>
                     </div>
                     <div class="flex justify-end">
                         <button onclick="inventory.processInput()" class="bg-brand-600 text-white px-6 py-2 rounded shadow-sm hover:bg-brand-700 flex items-center gap-2 font-medium transition-colors">
-                            <i data-lucide="arrow-down"></i> Processar Divergências
+                            <i data-lucide="arrow-down"></i> Processar e Calcular
                         </button>
                     </div>
                 </div>
@@ -235,6 +248,7 @@
                             <thead class="bg-gray-50">
                                 <tr>
                                     <th class="px-4 py-3 text-left font-semibold text-gray-600">Material</th>
+                                    <th class="px-4 py-3 text-left font-semibold text-gray-600">Descrição</th>
                                     <th class="px-4 py-3 text-left font-semibold text-gray-600">Depósito</th>
                                     <th class="px-4 py-3 text-right font-semibold text-gray-600">Qtd SAP</th>
                                     <th class="px-4 py-3 text-right font-semibold text-gray-600">Físico</th>
