@@ -1,8 +1,8 @@
 // --- CONFIGURAÇÃO GITHUB (PREENCHA AQUI) ---
 const GITHUB_CONFIG = {
     OWNER: 'MatheusFujimura1', // Seu usuário do GitHub
-    REPO: 'site-inventario',   // O nome exato do seu repositório
-    TOKEN: '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', // <--- COLE SEU TOKEN AQUI (MANTENHA AS ASPAS)
+    REPO: 'InventarioOficial',   // <--- CORRIGIDO PARA O NOME REAL DO SEU REPO
+    TOKEN: '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', // Seu token
     FILE_PATH: 'database.json',
     BRANCH: 'main' // ou 'master', dependendo de como criou
 };
