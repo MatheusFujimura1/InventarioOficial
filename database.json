@@ -1,5 +1,20 @@
 {
-  "inventory": [],
+  "inventory": [
+    {
+      "id": 1770923361563.961,
+      "code": "301500104904",
+      "desc": "PORCA;M8X1,25;6,50MM;ASTM A307 GV;G B",
+      "wh": "DP04",
+      "sapQ": 100,
+      "physQ": 90,
+      "sapVal": 7.26,
+      "divQ": -10,
+      "divVal": -0.726,
+      "date": "12/02/2026",
+      "registeredBy": "Matheus Fujimura",
+      "registeredRole": "Administrador"
+    }
+  ],
   "users": [
     {
       "id": "root",
