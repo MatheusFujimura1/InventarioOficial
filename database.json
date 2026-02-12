@@ -14,6 +14,13 @@
       "username": "epaula",
       "password": "Em081987@",
       "role": "ADMIN"
+    },
+    {
+      "id": "1770923298362",
+      "name": "Murilo Ceccon Micheletto",
+      "username": "gmmicheletto",
+      "password": "267620@Tereos",
+      "role": "USER"
     }
   ]
 }
