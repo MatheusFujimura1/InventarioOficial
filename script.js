@@ -62,7 +62,7 @@ const GithubDB = {
         try {
             const content = JSON.stringify(newData, null, 2);
             const body = {
-                message: `Update via App - ${new Date().toLocaleString()}`,
+                message: `Update via App - ${new Date().toLocaleString('pt-BR')}`,
                 content: GithubDB.toBase64(content),
                 sha: GithubDB.sha,
                 branch: GITHUB_CONFIG.BRANCH
@@ -103,6 +103,18 @@ const DB = {
     getInventory: () => GithubDB.data ? GithubDB.data.inventory : [],
     getUsers: () => GithubDB.data ? GithubDB.data.users : [],
     
+    // Helper para pegar datas únicas disponíveis
+    getUniqueDates: () => {
+        const inventory = GithubDB.data ? GithubDB.data.inventory : [];
+        const dates = [...new Set(inventory.map(item => item.date))];
+        // Ordena datas (assumindo formato DD/MM/YYYY)
+        return dates.sort((a, b) => {
+            const [da, ma, ya] = a.split('/');
+            const [db, mb, yb] = b.split('/');
+            return new Date(`${ya}-${ma}-${da}`) - new Date(`${yb}-${mb}-${db}`);
+        }).reverse(); // Mais recente primeiro
+    },
+
     // Atualiza o objeto completo e manda salvar
     update: async (key, value) => {
         if (!GithubDB.data) return;
@@ -122,6 +134,30 @@ const ui = {
             el.classList.remove('hidden');
         } else {
             el.classList.add('hidden');
+        }
+    },
+    populateDateSelect: (selectId, dates, includeAll = true) => {
+        const select = document.getElementById(selectId);
+        const currentVal = select.value;
+        
+        select.innerHTML = '';
+        if (includeAll) {
+            const option = document.createElement('option');
+            option.value = 'ALL';
+            option.text = 'Todo o Período';
+            select.appendChild(option);
+        }
+
+        dates.forEach(date => {
+            const option = document.createElement('option');
+            option.value = date;
+            option.text = date;
+            select.appendChild(option);
+        });
+
+        // Tenta manter a seleção anterior se possível
+        if (dates.includes(currentVal) || currentVal === 'ALL') {
+            select.value = currentVal;
         }
     }
 };
@@ -254,7 +290,7 @@ const inventory = {
                 sapVal,
                 divQ,
                 divVal,
-                date: new Date().toLocaleDateString()
+                date: new Date().toLocaleDateString('pt-BR') // Garante formato DD/MM/AAAA
             };
         }).filter(x => x !== null);
 
@@ -298,22 +334,42 @@ const inventory = {
     },
 
     renderTable: () => {
+        // 1. Popula o filtro de datas
+        const dates = DB.getUniqueDates();
+        ui.populateDateSelect('list-date-filter', dates, true);
+
+        // 2. Obtém filtros atuais
         const search = document.getElementById('search-input').value.toLowerCase();
-        const data = DB.getInventory().filter(i => 
+        const dateFilter = document.getElementById('list-date-filter').value;
+
+        // 3. Filtra os dados
+        let data = DB.getInventory();
+
+        // Filtra por data se não for "ALL"
+        if (dateFilter !== 'ALL') {
+            data = data.filter(i => i.date === dateFilter);
+        }
+
+        // Filtra por texto
+        data = data.filter(i => 
             i.code.toLowerCase().includes(search) || 
             i.desc.toLowerCase().includes(search) || 
             i.wh.toLowerCase().includes(search)
         );
         
+        // Ordena por ID decrescente (mais novo primeiro)
+        data.sort((a, b) => b.id - a.id);
+
         const tbody = document.getElementById('inventory-body');
         
         if (data.length === 0) {
-            tbody.innerHTML = `<tr><td colspan="8" class="text-center py-8 text-gray-400">Nenhum item encontrado</td></tr>`;
+            tbody.innerHTML = `<tr><td colspan="9" class="text-center py-8 text-gray-400">Nenhum item encontrado</td></tr>`;
             return;
         }
 
         tbody.innerHTML = data.map(item => `
             <tr class="hover:bg-gray-50 transition-colors border-b last:border-0">
+                <td class="px-4 py-3 text-gray-500 text-xs">${item.date}</td>
                 <td class="px-4 py-3 font-medium text-gray-900">${item.code}</td>
                 <td class="px-4 py-3 text-gray-500 truncate max-w-xs" title="${item.desc}">${item.desc}</td>
                 <td class="px-4 py-3 text-gray-500">${item.wh}</td>
@@ -348,16 +404,21 @@ const inventory = {
     },
 
     exportCSV: () => {
-        const data = DB.getInventory();
-        let csv = "Material;Descricao;Deposito;Qtd SAP;Contagem;Divergencia Qtd;Divergencia Valor\n";
+        const dateFilter = document.getElementById('list-date-filter').value;
+        let data = DB.getInventory();
+        if (dateFilter !== 'ALL') {
+            data = data.filter(i => i.date === dateFilter);
+        }
+
+        let csv = "Data;Material;Descricao;Deposito;Qtd SAP;Contagem;Divergencia Qtd;Divergencia Valor\n";
         data.forEach(row => {
-            csv += `${row.code};${row.desc};${row.wh};${row.sapQ.toString().replace('.', ',')};${row.physQ.toString().replace('.', ',')};${row.divQ.toString().replace('.', ',')};${row.divVal.toFixed(2).replace('.', ',')}\n`;
+            csv += `${row.date};${row.code};${row.desc};${row.wh};${row.sapQ.toString().replace('.', ',')};${row.physQ.toString().replace('.', ',')};${row.divQ.toString().replace('.', ',')};${row.divVal.toFixed(2).replace('.', ',')}\n`;
         });
         const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
         const url = window.URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = 'inventario_vertente.csv';
+        a.download = `inventario_vertente_${dateFilter === 'ALL' ? 'geral' : dateFilter.replace(/\//g, '-')}.csv`;
         a.click();
     }
 };
@@ -368,8 +429,21 @@ const dashboard = {
     chartInstance: null,
     
     render: () => {
-        const data = DB.getInventory();
+        // 1. Popula as datas (apenas se for a primeira vez ou se mudou)
+        const dates = DB.getUniqueDates();
+        // Não queremos re-renderizar o select se o usuário já estiver interagindo com ele,
+        // mas queremos ter certeza que as opções existem.
+        const select = document.getElementById('dashboard-date-filter');
+        if (select.options.length <= 1 && dates.length > 0) {
+            ui.populateDateSelect('dashboard-date-filter', dates, true);
+        }
+
+        // 2. Filtra dados
+        const selectedDate = select.value;
+        const allData = DB.getInventory();
+        const data = selectedDate === 'ALL' ? allData : allData.filter(i => i.date === selectedDate);
         
+        // 3. Calcula KPIs
         const totalItems = data.length;
         const itemsOk = data.filter(i => i.divQ === 0).length;
         const accuracy = totalItems ? ((itemsOk / totalItems) * 100).toFixed(1) : 0;
@@ -381,6 +455,7 @@ const dashboard = {
         document.getElementById('kpi-divergence').innerText = totalDivVal.toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'});
         document.getElementById('kpi-sap-value').innerText = totalSapVal.toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'});
 
+        // 4. Gráfico
         const whMap = {};
         data.forEach(i => {
             const wh = i.wh || 'N/A';
