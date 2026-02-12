@@ -333,6 +333,57 @@ const router = {
 let previewData = [];
 
 const inventory = {
+    setupListeners: () => {
+        // Função para preenchimento em tempo real
+        const autoFill = () => {
+            if (!MasterData.isLoaded) return;
+            
+            const codeInput = document.getElementById('input-code');
+            const sapInput = document.getElementById('input-sap');
+            const descInput = document.getElementById('input-desc');
+            const valInput = document.getElementById('input-val');
+
+            const codes = codeInput.value.split('\n');
+            const saps = sapInput.value.split('\n');
+            
+            // Reconstroi as descrições
+            const newDescs = codes.map((codeRaw, i) => {
+                const code = codeRaw.trim();
+                if(!code) return '';
+                // Mantém o valor atual se o usuário digitou algo diferente e não é vazio,
+                // mas a prioridade é o preenchimento automatico se for compatível
+                return MasterData.descriptions[code] || '';
+            });
+
+            // Reconstroi os valores
+            const newVals = codes.map((codeRaw, i) => {
+                const code = codeRaw.trim();
+                if(!code) return '';
+                
+                // Pega quantidade
+                const qtyStr = saps[i] ? saps[i].replace(',', '.') : '0';
+                const qty = parseFloat(qtyStr) || 0;
+                
+                // Pega preço unitário
+                const unitPrice = MasterData.prices[code];
+                
+                if (unitPrice && !isNaN(unitPrice)) {
+                    const total = unitPrice * qty;
+                    return total.toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'});
+                }
+                return '';
+            });
+
+            // Só atualiza se tiver dados novos para evitar apagar o que o usuário está digitando manualmente
+            if (newDescs.some(d => d !== '')) descInput.value = newDescs.join('\n');
+            if (newVals.some(v => v !== '')) valInput.value = newVals.join('\n');
+        };
+
+        // Adiciona ouvintes para reagir à digitação
+        document.getElementById('input-code').addEventListener('input', autoFill);
+        document.getElementById('input-sap').addEventListener('input', autoFill);
+    },
+
     processInput: () => {
         const getLines = (id) => document.getElementById(id).value.trim().split('\n');
         
@@ -381,14 +432,17 @@ const inventory = {
             return {
                 id: Date.now() + Math.random(),
                 code: code,
-                desc: description, // Descrição enriquecida
+                desc: description,
                 wh: whs[i] || 'GERAL',
                 sapQ,
                 physQ,
                 sapVal,
                 divQ,
                 divVal,
-                date: new Date().toLocaleDateString('pt-BR')
+                date: new Date().toLocaleDateString('pt-BR'),
+                // NOVOS CAMPOS: REGISTRO DE USUÁRIO
+                registeredBy: auth.user.name,
+                registeredRole: auth.user.role === 'ADMIN' ? 'Administrador' : 'Balconista'
             };
         }).filter(x => x !== null);
 
@@ -456,13 +510,17 @@ const inventory = {
         const tbody = document.getElementById('inventory-body');
         
         if (data.length === 0) {
-            tbody.innerHTML = `<tr><td colspan="9" class="text-center py-8 text-gray-400">Nenhum item encontrado</td></tr>`;
+            tbody.innerHTML = `<tr><td colspan="10" class="text-center py-8 text-gray-400">Nenhum item encontrado</td></tr>`;
             return;
         }
 
         tbody.innerHTML = data.map(item => `
             <tr class="hover:bg-gray-50 transition-colors border-b last:border-0">
                 <td class="px-4 py-3 text-gray-500 text-xs">${item.date}</td>
+                <td class="px-4 py-3">
+                    <div class="text-xs font-bold text-gray-700">${item.registeredBy || 'Desconhecido'}</div>
+                    <div class="text-[10px] text-gray-400 uppercase">${item.registeredRole || '-'}</div>
+                </td>
                 <td class="px-4 py-3 font-medium text-gray-900">${item.code}</td>
                 <td class="px-4 py-3 text-gray-500 truncate max-w-xs text-xs" title="${item.desc}">${item.desc}</td>
                 <td class="px-4 py-3 text-gray-500">${item.wh}</td>
@@ -503,9 +561,9 @@ const inventory = {
             data = data.filter(i => i.date === dateFilter);
         }
 
-        let csv = "Data;Material;Descricao;Deposito;Qtd SAP;Contagem;Divergencia Qtd;Divergencia Valor\n";
+        let csv = "Data;Responsavel;Cargo;Material;Descricao;Deposito;Qtd SAP;Contagem;Divergencia Qtd;Divergencia Valor\n";
         data.forEach(row => {
-            csv += `${row.date};${row.code};${row.desc};${row.wh};${row.sapQ.toString().replace('.', ',')};${row.physQ.toString().replace('.', ',')};${row.divQ.toString().replace('.', ',')};${row.divVal.toFixed(2).replace('.', ',')}\n`;
+            csv += `${row.date};${row.registeredBy || ''};${row.registeredRole || ''};${row.code};${row.desc};${row.wh};${row.sapQ.toString().replace('.', ',')};${row.physQ.toString().replace('.', ',')};${row.divQ.toString().replace('.', ',')};${row.divVal.toFixed(2).replace('.', ',')}\n`;
         });
         const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
         const url = window.URL.createObjectURL(blob);
@@ -646,6 +704,9 @@ const app = {
         
         // Tenta carregar dados do Excel imediatamente ao iniciar o app
         MasterData.init();
+        
+        // Ativa os listeners para preenchimento em tempo real
+        inventory.setupListeners();
 
         if (auth.user.role !== 'ADMIN') {
             document.getElementById('nav-dashboard').classList.add('hidden');
