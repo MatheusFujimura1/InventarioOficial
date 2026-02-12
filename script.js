@@ -9,18 +9,28 @@ const GITHUB_CONFIG = {
 
 // --- UTILS DE DADOS ---
 const DataUtils = {
-    // Remove espaços e converte para string para garantir que ' 123 ' bata com '123'
+    // Normaliza o código para texto, sem espaços e maiúsculo
     normalizeCode: (code) => {
         if (code === undefined || code === null) return '';
+        // Converte para string, remove espaços e caracteres invisíveis
         return String(code).replace(/\s+/g, '').trim().toUpperCase();
     },
     
-    // Tenta limpar valores monetários do Excel (R$ 1.200,50 -> 1200.50)
+    // Tenta limpar valores monetários do Excel (R$ 1.200,50 -> 1200.50) ou Textos (6,29 -> 6.29)
     parseMoney: (val) => {
         if (typeof val === 'number') return val;
         if (typeof val === 'string') {
-            // Remove R$, espaços, pontos de milhar e troca vírgula por ponto
-            const clean = val.replace(/[R$\s]/g, '').replace(/\./g, '').replace(',', '.');
+            // Se estiver vazio
+            if (!val.trim()) return 0;
+            // Remove R$, espaços
+            let clean = val.replace(/[R$\s]/g, '');
+            // Se tiver vírgula e ponto (1.200,50), remove ponto de milhar e troca vírgula por ponto
+            if (clean.includes(',') && clean.includes('.')) {
+                clean = clean.replace(/\./g, '').replace(',', '.');
+            } else if (clean.includes(',')) {
+                // Apenas vírgula (6,29) -> 6.29
+                clean = clean.replace(',', '.');
+            }
             const num = parseFloat(clean);
             return isNaN(num) ? 0 : num;
         }
@@ -40,7 +50,7 @@ const GithubDB = {
         }));
     },
 
-    // Ler dados JSON do GitHub
+    // Ler dados JSON do GitHub (Database do App)
     fetchData: async () => {
         try {
             const url = `https://api.github.com/repos/${GITHUB_CONFIG.OWNER}/${GITHUB_CONFIG.REPO}/contents/${GITHUB_CONFIG.FILE_PATH}?ref=${GITHUB_CONFIG.BRANCH}`;
@@ -64,7 +74,6 @@ const GithubDB = {
             return GithubDB.data;
         } catch (error) {
             console.error('Erro ao ler DB:', error);
-            // alert('Erro ao carregar dados do GitHub. Verifique o console ou o Token.');
             return null;
         }
     },
@@ -73,6 +82,8 @@ const GithubDB = {
     fetchBinaryFile: async (filename) => {
         try {
             const url = `https://api.github.com/repos/${GITHUB_CONFIG.OWNER}/${GITHUB_CONFIG.REPO}/contents/${filename}?ref=${GITHUB_CONFIG.BRANCH}`;
+            console.log(`Baixando Excel: ${url}`);
+            
             const response = await fetch(url, {
                 headers: {
                     'Authorization': `token ${GITHUB_CONFIG.TOKEN}`,
@@ -146,18 +157,16 @@ const GithubDB = {
     }
 };
 
-// --- DADOS MESTRES (EXCEL) ---
+// --- DADOS MESTRES (EXCEL - VALORES.XLSX) ---
 const MasterData = {
     descriptions: {}, // Mapa: Código Normalizado -> Descrição
-    prices: {},       // Mapa: Código Normalizado -> Preço Unitário
+    prices: {},       // Mapa: Código Normalizado -> Valor Unitário (Coluna J)
     isLoaded: false,
 
     init: async () => {
-        // Permitir recarga se chamado manualmente
-        
         const statusEl = document.getElementById('master-data-status');
         if(statusEl) {
-            statusEl.innerHTML = `<div class="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-600"></div><span class="text-gray-600">Baixando Valores.xlsx (Base Tereos)...</span>`;
+            statusEl.innerHTML = `<div class="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-600"></div><span class="text-gray-600">Baixando Valores.xlsx do GitHub...</span>`;
         }
 
         // --- CARREGAR DADOS APENAS DE VALORES.XLSX ---
@@ -165,9 +174,11 @@ const MasterData = {
         // Coluna B (1) = Texto Breve (Descrição)
         // Coluna J (9) = Valor Unitário
         const valBuffer = await GithubDB.fetchBinaryFile('Valores.xlsx');
+        
         if (valBuffer) {
             const wb = XLSX.read(valBuffer, {type: 'array'});
             const ws = wb.Sheets[wb.SheetNames[0]];
+            // Header: 1 gera um array de arrays [[A1, B1, ...], [A2, B2, ...]]
             const rows = XLSX.utils.sheet_to_json(ws, {header: 1});
             
             let count = 0;
@@ -175,11 +186,15 @@ const MasterData = {
             MasterData.descriptions = {};
             MasterData.prices = {};
 
-            rows.forEach(row => {
+            rows.forEach((row, index) => {
+                // Pula cabeçalho se a primeira linha tiver escrito "Material" na coluna A
+                if (index === 0 && String(row[0]).includes("Material")) return;
+                
                 if (row[0] === undefined) return;
+                
                 const code = DataUtils.normalizeCode(row[0]);
-                const desc = row[1]; // Coluna B
-                const priceRaw = row[9]; // Coluna J (index 9)
+                const desc = row[1]; // Coluna B (Indice 1)
+                const priceRaw = row[9]; // Coluna J (Indice 9) - Valor Unitário
                 
                 if (code) {
                     // 1. Salva Descrição
@@ -187,7 +202,7 @@ const MasterData = {
                         MasterData.descriptions[code] = String(desc).trim();
                     }
 
-                    // 2. Salva Preço
+                    // 2. Salva Preço Unitário
                     if (priceRaw !== undefined) {
                         const price = DataUtils.parseMoney(priceRaw);
                         if (!isNaN(price)) {
@@ -201,10 +216,11 @@ const MasterData = {
             
             MasterData.isLoaded = true;
             if(statusEl) {
-                statusEl.innerHTML = `<i data-lucide="check-circle" class="w-4 h-4 text-green-600"></i><span class="text-green-700 font-medium">Base Tereos sincronizada! (${count} itens)</span>`;
+                statusEl.innerHTML = `<i data-lucide="check-circle" class="w-4 h-4 text-green-600"></i><span class="text-green-700 font-medium">Valores.xlsx (Tereos) Sincronizada! (${count} itens)</span>`;
                 lucide.createIcons();
             }
-            // Tenta processar o que já estiver na tela
+            
+            // Tenta processar o que já estiver na tela caso o usuário tenha colado antes de carregar
             inventory.triggerAutoFill();
 
         } else {
@@ -369,13 +385,12 @@ let previewData = [];
 
 const inventory = {
     // FUNÇÃO PRINCIPAL: PREENCHIMENTO AUTOMÁTICO
+    // Pega o Código -> Busca Descrição (Col B) e Preço Unitário (Col J) -> Calcula Total (Unitário * Qtd SAP)
     triggerAutoFill: () => {
-        if (!MasterData.isLoaded) return;
-        
         const codeInput = document.getElementById('input-code');
-        const sapInput = document.getElementById('input-sap');
+        const sapInput = document.getElementById('input-sap'); // Qtd SAP
         const descInput = document.getElementById('input-desc');
-        const valInput = document.getElementById('input-val');
+        const valInput = document.getElementById('input-val'); // Valor Total
 
         if (!codeInput) return;
 
@@ -395,15 +410,18 @@ const inventory = {
             newDescs.push(desc || ''); // Se não achar, deixa vazio
 
             // 2. VALOR (Unitário * Quantidade)
-            const qtyStr = saps[i] ? saps[i].replace(',', '.') : '0';
-            let qty = parseFloat(qtyStr);
-            if (isNaN(qty)) qty = 0;
+            // Primeiro, pegamos a Qtd SAP digitada
+            const sapQStr = saps[i] ? String(saps[i]) : '0';
+            const sapQ = DataUtils.parseMoney(sapQStr);
             
+            // Segundo, pegamos o Valor Unitário do Excel (Coluna J)
             const unitPrice = MasterData.prices[code];
             
             if (unitPrice !== undefined && !isNaN(unitPrice)) {
                 // Cálculo: Valor Unitário (do Excel) * Quantidade SAP (Digitada)
-                const total = unitPrice * qty;
+                const total = unitPrice * sapQ;
+                
+                // Formata para R$
                 newVals.push(total.toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'}));
             } else {
                 newVals.push('');
@@ -429,10 +447,13 @@ const inventory = {
 
         if (codeInput) {
             codeInput.addEventListener('input', handleInput);
+            // Também ouvir mudança de foco (blur) para garantir
+            codeInput.addEventListener('blur', handleInput);
         }
         
         if (sapInput) {
             sapInput.addEventListener('input', handleInput);
+            sapInput.addEventListener('blur', handleInput);
         }
     },
 
@@ -460,18 +481,20 @@ const inventory = {
             const sapQ = DataUtils.parseMoney(saps[i] || '0');
             const physQ = DataUtils.parseMoney(physs[i] || '0');
             
-            // 3. Valor Total SAP (Prioriza tela)
+            // 3. Valor Total SAP (Prioriza tela, que foi calculada pelo autofill)
             let sapVal = 0;
             const rawVal = (vals[i] || '').trim();
             if (rawVal) {
                 sapVal = DataUtils.parseMoney(rawVal);
             } else {
-                // Fallback cálculo
+                // Fallback cálculo se não tiver nada na tela
                 const unitPrice = MasterData.prices[code] || 0;
                 sapVal = sapQ * unitPrice;
             }
             
-            const unitVal = sapQ !== 0 ? sapVal / sapQ : 0;
+            // Valor unitário implícito para calcular divergência de valor
+            const unitVal = sapQ !== 0 ? sapVal / sapQ : (MasterData.prices[code] || 0);
+            
             const divQ = physQ - sapQ;
             const divVal = divQ * unitVal;
 
