@@ -49,7 +49,8 @@ const GithubDB = {
     // Ler dados JSON do GitHub (Database do App)
     fetchData: async () => {
         try {
-            const url = `https://api.github.com/repos/${GITHUB_CONFIG.OWNER}/${GITHUB_CONFIG.REPO}/contents/${GITHUB_CONFIG.FILE_PATH}?ref=${GITHUB_CONFIG.BRANCH}`;
+            // Adiciona timestamp para evitar cache
+            const url = `https://api.github.com/repos/${GITHUB_CONFIG.OWNER}/${GITHUB_CONFIG.REPO}/contents/${GITHUB_CONFIG.FILE_PATH}?ref=${GITHUB_CONFIG.BRANCH}&ts=${new Date().getTime()}`;
             const response = await fetch(url, {
                 headers: {
                     'Authorization': `token ${GITHUB_CONFIG.TOKEN}`,
@@ -77,10 +78,11 @@ const GithubDB = {
     // Buscar arquivo binário (Excel) do GitHub - MODO RAW (CORRIGIDO)
     fetchBinaryFile: async (filename) => {
         try {
-            const url = `https://api.github.com/repos/${GITHUB_CONFIG.OWNER}/${GITHUB_CONFIG.REPO}/contents/${filename}?ref=${GITHUB_CONFIG.BRANCH}`;
+            const url = `https://api.github.com/repos/${GITHUB_CONFIG.OWNER}/${GITHUB_CONFIG.REPO}/contents/${filename}?ref=${GITHUB_CONFIG.BRANCH}&ts=${new Date().getTime()}`;
             
             // Usando header para pegar conteúdo RAW (bytes direto) ao invés de JSON Base64
             // Isso resolve problemas com arquivos maiores que 1MB
+            console.log(`Baixando: ${url}`);
             const response = await fetch(url, {
                 headers: {
                     'Authorization': `token ${GITHUB_CONFIG.TOKEN}`,
@@ -93,7 +95,7 @@ const GithubDB = {
                 return null;
             }
 
-            // Pega o buffer direto
+            // Pega o buffer direto (transforma a resposta da internet em "arquivo")
             const buffer = await response.arrayBuffer();
             return new Uint8Array(buffer);
 
@@ -155,10 +157,12 @@ const MasterData = {
         const statusEl = document.getElementById('master-data-status');
         if(statusEl) statusEl.innerHTML = `<div class="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-600"></div><span class="text-gray-600">Baixando Valores.xlsx...</span>`;
 
+        // Tenta baixar o arquivo "transformado em bytes"
         const valBuffer = await GithubDB.fetchBinaryFile('Valores.xlsx');
         
         if (valBuffer) {
             const wb = XLSX.read(valBuffer, {type: 'array'});
+            // Chama EXATAMENTE a mesma função que o upload local usa
             MasterData.processWorkbook(wb, 'GitHub');
         } else {
             if(statusEl) statusEl.innerHTML = `<i data-lucide="alert-circle" class="w-4 h-4 text-red-600"></i><span class="text-red-700 font-medium">Erro no GitHub. Use "Carregar do PC".</span>`;
@@ -174,11 +178,13 @@ const MasterData = {
         reader.onload = (e) => {
             const data = new Uint8Array(e.target.result);
             const wb = XLSX.read(data, {type: 'array'});
+            // Chama EXATAMENTE a mesma função que o GitHub usa
             MasterData.processWorkbook(wb, 'Local (PC)');
         };
         reader.readAsArrayBuffer(file);
     },
 
+    // Esta função processa os dados, não importa de onde vieram
     processWorkbook: (wb, sourceName) => {
         const statusEl = document.getElementById('master-data-status');
         
@@ -242,6 +248,7 @@ const MasterData = {
             lucide.createIcons();
         }
         
+        // Dispara o autopreenchimento se houver algo na tela
         inventory.triggerAutoFill();
     }
 };
