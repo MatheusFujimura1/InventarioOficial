@@ -169,67 +169,87 @@ const MasterData = {
             statusEl.innerHTML = `<div class="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-600"></div><span class="text-gray-600">Baixando Valores.xlsx do GitHub...</span>`;
         }
 
-        // --- CARREGAR DADOS APENAS DE VALORES.XLSX ---
-        // Coluna A (0) = Código
-        // Coluna B (1) = Texto Breve (Descrição)
-        // Coluna J (9) = Valor Unitário
+        // Tenta baixar do GitHub
         const valBuffer = await GithubDB.fetchBinaryFile('Valores.xlsx');
         
         if (valBuffer) {
             const wb = XLSX.read(valBuffer, {type: 'array'});
-            const ws = wb.Sheets[wb.SheetNames[0]];
-            // Header: 1 gera um array de arrays [[A1, B1, ...], [A2, B2, ...]]
-            const rows = XLSX.utils.sheet_to_json(ws, {header: 1});
-            
-            let count = 0;
-            // Limpa dados anteriores para garantir atualização
-            MasterData.descriptions = {};
-            MasterData.prices = {};
-
-            rows.forEach((row, index) => {
-                // Pula cabeçalho se a primeira linha tiver escrito "Material" na coluna A
-                if (index === 0 && String(row[0]).includes("Material")) return;
-                
-                if (row[0] === undefined) return;
-                
-                const code = DataUtils.normalizeCode(row[0]);
-                const desc = row[1]; // Coluna B (Indice 1)
-                const priceRaw = row[9]; // Coluna J (Indice 9) - Valor Unitário
-                
-                if (code) {
-                    // 1. Salva Descrição
-                    if (desc) {
-                        MasterData.descriptions[code] = String(desc).trim();
-                    }
-
-                    // 2. Salva Preço Unitário
-                    if (priceRaw !== undefined) {
-                        const price = DataUtils.parseMoney(priceRaw);
-                        if (!isNaN(price)) {
-                            MasterData.prices[code] = price;
-                        }
-                    }
-                    count++;
-                }
-            });
-            console.log(`[Valores.xlsx] Sincronizado. ${count} materiais carregados.`);
-            
-            MasterData.isLoaded = true;
-            if(statusEl) {
-                statusEl.innerHTML = `<i data-lucide="check-circle" class="w-4 h-4 text-green-600"></i><span class="text-green-700 font-medium">Valores.xlsx (Tereos) Sincronizada! (${count} itens)</span>`;
-                lucide.createIcons();
-            }
-            
-            // Tenta processar o que já estiver na tela caso o usuário tenha colado antes de carregar
-            inventory.triggerAutoFill();
-
+            MasterData.processWorkbook(wb, 'GitHub');
         } else {
-            console.warn('[Valores.xlsx] Arquivo não encontrado ou erro no download.');
+            console.warn('[Valores.xlsx] Arquivo não encontrado no GitHub.');
             if(statusEl) {
-                statusEl.innerHTML = `<i data-lucide="alert-circle" class="w-4 h-4 text-red-600"></i><span class="text-red-700 font-medium">Erro ao baixar Valores.xlsx</span>`;
+                statusEl.innerHTML = `<i data-lucide="alert-circle" class="w-4 h-4 text-red-600"></i><span class="text-red-700 font-medium">Erro no GitHub. Tente carregar do PC.</span>`;
                 lucide.createIcons();
             }
         }
+    },
+
+    // Função para lidar com upload local
+    handleUpload: (input) => {
+        const file = input.files[0];
+        if(!file) return;
+
+        const statusEl = document.getElementById('master-data-status');
+        if(statusEl) statusEl.innerHTML = `<div class="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-600"></div><span class="text-gray-600">Lendo arquivo local...</span>`;
+
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            const data = new Uint8Array(e.target.result);
+            const wb = XLSX.read(data, {type: 'array'});
+            MasterData.processWorkbook(wb, 'Local (PC)');
+        };
+        reader.readAsArrayBuffer(file);
+    },
+
+    // Processa a planilha (seja do Git ou Local)
+    processWorkbook: (wb, sourceName) => {
+        const statusEl = document.getElementById('master-data-status');
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        // Header: 1 gera um array de arrays [[A1, B1, ...], [A2, B2, ...]]
+        const rows = XLSX.utils.sheet_to_json(ws, {header: 1});
+        
+        let count = 0;
+        // Limpa dados anteriores
+        MasterData.descriptions = {};
+        MasterData.prices = {};
+
+        rows.forEach((row, index) => {
+            // Pula cabeçalho se a linha tiver escrito "Material" na coluna A
+            if (String(row[0]).toLowerCase().includes("material")) return;
+            
+            if (row[0] === undefined) return;
+            
+            const code = DataUtils.normalizeCode(row[0]);
+            const desc = row[1]; // Coluna B (Indice 1)
+            const priceRaw = row[9]; // Coluna J (Indice 9) - Valor Unitário
+            
+            if (code) {
+                // 1. Salva Descrição
+                if (desc) {
+                    MasterData.descriptions[code] = String(desc).trim();
+                }
+
+                // 2. Salva Preço Unitário
+                if (priceRaw !== undefined) {
+                    const price = DataUtils.parseMoney(priceRaw);
+                    if (!isNaN(price)) {
+                        MasterData.prices[code] = price;
+                    }
+                }
+                count++;
+            }
+        });
+        
+        console.log(`[Valores.xlsx] Sincronizado via ${sourceName}. ${count} materiais carregados.`);
+        
+        MasterData.isLoaded = true;
+        if(statusEl) {
+            statusEl.innerHTML = `<i data-lucide="check-circle" class="w-4 h-4 text-green-600"></i><span class="text-green-700 font-medium">Base Tereos (${sourceName}) Sincronizada! (${count} itens)</span>`;
+            lucide.createIcons();
+        }
+        
+        // Tenta processar o que já estiver na tela
+        inventory.triggerAutoFill();
     }
 };
 
@@ -384,62 +404,66 @@ const router = {
 let previewData = [];
 
 const inventory = {
-    // FUNÇÃO PRINCIPAL: PREENCHIMENTO AUTOMÁTICO
-    // Pega o Código -> Busca Descrição (Col B) e Preço Unitário (Col J) -> Calcula Total (Unitário * Qtd SAP)
+    // FUNÇÃO PRINCIPAL: PREENCHIMENTO AUTOMÁTICO INTELIGENTE
+    // Se encontrar na base, sobrescreve.
+    // Se não encontrar, MANTÉM o que o usuário digitou (para permitir input manual).
     triggerAutoFill: () => {
         const codeInput = document.getElementById('input-code');
         const sapInput = document.getElementById('input-sap'); // Qtd SAP
-        const descInput = document.getElementById('input-desc');
+        const descInput = document.getElementById('input-desc'); // Descrição
         const valInput = document.getElementById('input-val'); // Valor Total
 
         if (!codeInput) return;
 
-        const codes = codeInput.value.split('\n');
-        const saps = sapInput.value.split('\n');
+        const codeLines = codeInput.value.split('\n');
+        const sapLines = sapInput.value.split('\n');
+        const currentDescLines = descInput.value.split('\n');
+        const currentValLines = valInput.value.split('\n');
         
-        // Arrays para os novos valores calculados
         const newDescs = [];
         const newVals = [];
 
-        codes.forEach((codeRaw, i) => {
+        codeLines.forEach((codeRaw, i) => {
             const code = DataUtils.normalizeCode(codeRaw);
             
-            // 1. DESCRIÇÃO
-            // Busca descrição pelo código normalizado
-            const desc = MasterData.descriptions[code];
-            newDescs.push(desc || ''); // Se não achar, deixa vazio
+            // Tenta pegar dados da base
+            const dbDesc = MasterData.descriptions[code];
+            const dbUnitPrice = MasterData.prices[code];
 
-            // 2. VALOR (Unitário * Quantidade)
-            // Primeiro, pegamos a Qtd SAP digitada
-            const sapQStr = saps[i] ? String(saps[i]) : '0';
+            // Quantidade digitada
+            const sapQStr = sapLines[i] ? String(sapLines[i]) : '0';
             const sapQ = DataUtils.parseMoney(sapQStr);
-            
-            // Segundo, pegamos o Valor Unitário do Excel (Coluna J)
-            const unitPrice = MasterData.prices[code];
-            
-            if (unitPrice !== undefined && !isNaN(unitPrice)) {
-                // Cálculo: Valor Unitário (do Excel) * Quantidade SAP (Digitada)
-                const total = unitPrice * sapQ;
-                
-                // Formata para R$
+
+            // 1. DESCRIÇÃO
+            if (dbDesc) {
+                // Se existe na base, usa da base
+                newDescs.push(dbDesc);
+            } else {
+                // Se NÃO existe na base, mantém o que o usuário digitou (ou vazio)
+                newDescs.push(currentDescLines[i] || '');
+            }
+
+            // 2. VALOR TOTAL
+            if (dbUnitPrice !== undefined && !isNaN(dbUnitPrice)) {
+                // Se existe preço unitário na base, calcula
+                const total = dbUnitPrice * sapQ;
                 newVals.push(total.toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'}));
             } else {
-                newVals.push('');
+                // Se NÃO existe preço na base, mantém o que o usuário digitou (ou vazio)
+                newVals.push(currentValLines[i] || '');
             }
         });
 
-        // Recria as strings com quebra de linha
+        // Atualiza campos
         descInput.value = newDescs.join('\n');
         valInput.value = newVals.join('\n');
     },
 
     setupListeners: () => {
-        // Ouve digitação no CÓDIGO e na QUANTIDADE SAP
         const codeInput = document.getElementById('input-code');
         const sapInput = document.getElementById('input-sap');
 
         const handleInput = () => {
-            // Pequeno delay para não travar digitação rápida e dar tempo do paste processar
             requestAnimationFrame(() => {
                 inventory.triggerAutoFill();
             });
@@ -447,7 +471,6 @@ const inventory = {
 
         if (codeInput) {
             codeInput.addEventListener('input', handleInput);
-            // Também ouvir mudança de foco (blur) para garantir
             codeInput.addEventListener('blur', handleInput);
         }
         
@@ -473,34 +496,33 @@ const inventory = {
             const code = DataUtils.normalizeCode(codeRaw);
             if (!code) return null;
             
-            // 1. Descrição (Prioriza o que está na tela, que veio do autofill)
-            let description = descs[i] ? descs[i].trim() : '';
-            if (!description) description = MasterData.descriptions[code] || '';
-
-            // 2. Quantidades
+            // Usa o que está na tela (que pode ser automático OU manual)
+            const description = descs[i] ? descs[i].trim() : '';
+            
+            // Quantidades
             const sapQ = DataUtils.parseMoney(saps[i] || '0');
             const physQ = DataUtils.parseMoney(physs[i] || '0');
             
-            // 3. Valor Total SAP (Prioriza tela, que foi calculada pelo autofill)
+            // Valor Total SAP (Usa o que está na tela)
             let sapVal = 0;
             const rawVal = (vals[i] || '').trim();
-            if (rawVal) {
-                sapVal = DataUtils.parseMoney(rawVal);
-            } else {
-                // Fallback cálculo se não tiver nada na tela
-                const unitPrice = MasterData.prices[code] || 0;
-                sapVal = sapQ * unitPrice;
+            sapVal = DataUtils.parseMoney(rawVal);
+            
+            // Se não tiver valor na tela e tiver no banco (fallback), calcula
+            if (sapVal === 0 && MasterData.prices[code]) {
+                sapVal = sapQ * MasterData.prices[code];
             }
             
-            // Valor unitário implícito para calcular divergência de valor
-            const unitVal = sapQ !== 0 ? sapVal / sapQ : (MasterData.prices[code] || 0);
+            // Calcula unitário implícito para a divergência
+            // Se tiver Qtd, Unit = Total / Qtd. Se não, tenta pegar do banco. Se não, 0.
+            let unitVal = sapQ !== 0 ? sapVal / sapQ : (MasterData.prices[code] || 0);
             
             const divQ = physQ - sapQ;
             const divVal = divQ * unitVal;
 
             return {
                 id: Date.now() + Math.random(),
-                code: codeRaw.trim(), // Salva o código original visualmente
+                code: codeRaw.trim(),
                 desc: description,
                 wh: whs[i] || 'GERAL',
                 sapQ,
