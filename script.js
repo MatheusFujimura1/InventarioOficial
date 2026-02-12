@@ -2,7 +2,7 @@
 const GITHUB_CONFIG = {
     OWNER: 'MatheusFujimura1', // Seu usuário do GitHub
     REPO: 'site-inventario',   // O nome exato do seu repositório
-    TOKEN: 'COLOQUE_SEU_TOKEN_AQUI', // <--- COLE SEU TOKEN AQUI (MANTENHA AS ASPAS)
+    TOKEN: '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', // <--- COLE SEU TOKEN AQUI (MANTENHA AS ASPAS)
     FILE_PATH: 'database.json',
     BRANCH: 'main' // ou 'master', dependendo de como criou
 };
