@@ -13,6 +13,20 @@
       "date": "12/02/2026",
       "registeredBy": "Matheus Fujimura",
       "registeredRole": "Administrador"
+    },
+    {
+      "id": 1770919319667.4148,
+      "code": "300500231957",
+      "desc": "LUVA SEG;NY/ELAST;M;DANNY/DA11900TAMM",
+      "wh": "DEPI",
+      "sapQ": 300,
+      "physQ": 285,
+      "sapVal": 7772.6,
+      "divQ": -15,
+      "divVal": -388.63000000000005,
+      "date": "12/02/2026",
+      "registeredBy": "Matheus Fujimura",
+      "registeredRole": "Administrador"
     }
   ],
   "users": [
