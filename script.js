@@ -1,10 +1,31 @@
 // --- CONFIGURAÇÃO GITHUB (PREENCHA AQUI) ---
 const GITHUB_CONFIG = {
-    OWNER: 'MatheusFujimura1', // Seu usuário do GitHub
-    REPO: 'InventarioOficial',   // O nome exato do seu repositório
-    TOKEN: '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', // Seu token
+    OWNER: 'MatheusFujimura1', 
+    REPO: 'InventarioOficial',   
+    TOKEN: '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', 
     FILE_PATH: 'database.json',
-    BRANCH: 'main' // ou 'master', dependendo de como criou
+    BRANCH: 'main' 
+};
+
+// --- UTILS DE DADOS ---
+const DataUtils = {
+    // Remove espaços e converte para string para garantir que ' 123 ' bata com '123'
+    normalizeCode: (code) => {
+        if (code === undefined || code === null) return '';
+        return String(code).replace(/\s+/g, '').trim().toUpperCase();
+    },
+    
+    // Tenta limpar valores monetários do Excel (R$ 1.200,50 -> 1200.50)
+    parseMoney: (val) => {
+        if (typeof val === 'number') return val;
+        if (typeof val === 'string') {
+            // Remove R$, espaços, pontos de milhar e troca vírgula por ponto
+            const clean = val.replace(/[R$\s]/g, '').replace(/\./g, '').replace(',', '.');
+            const num = parseFloat(clean);
+            return isNaN(num) ? 0 : num;
+        }
+        return 0;
+    }
 };
 
 // --- SERVIÇO DE BANCO DE DADOS (GITHUB API) ---
@@ -43,7 +64,7 @@ const GithubDB = {
             return GithubDB.data;
         } catch (error) {
             console.error('Erro ao ler DB:', error);
-            alert('Erro ao carregar dados do GitHub. Verifique o console ou o Token.');
+            // alert('Erro ao carregar dados do GitHub. Verifique o console ou o Token.');
             return null;
         }
     },
@@ -59,7 +80,10 @@ const GithubDB = {
                 }
             });
 
-            if (!response.ok) return null;
+            if (!response.ok) {
+                console.error(`Falha ao baixar ${filename}: ${response.status}`);
+                return null;
+            }
 
             const json = await response.json();
             // Converter Base64 para ArrayBuffer
@@ -124,8 +148,8 @@ const GithubDB = {
 
 // --- DADOS MESTRES (EXCEL) ---
 const MasterData = {
-    descriptions: {}, // Mapa: Código -> Descrição
-    prices: {},       // Mapa: Código -> Preço Unitário
+    descriptions: {}, // Mapa: Código Normalizado -> Descrição
+    prices: {},       // Mapa: Código Normalizado -> Preço Unitário
     isLoaded: false,
 
     init: async () => {
@@ -138,56 +162,65 @@ const MasterData = {
         }
 
         // 1. Carregar Descrições (BaseTanabi.xlsx)
+        // Coluna A = Código, Coluna B = Descrição
         const baseBuffer = await GithubDB.fetchBinaryFile('BaseTanabi.xlsx');
         if (baseBuffer) {
             const wb = XLSX.read(baseBuffer, {type: 'array'});
             const ws = wb.Sheets[wb.SheetNames[0]];
-            // Ler Coluna A (Código) e B (Texto Breve)
-            const rows = XLSX.utils.sheet_to_json(ws, {header: 1}); // Array de Arrays
+            const rows = XLSX.utils.sheet_to_json(ws, {header: 1}); 
+            
+            let count = 0;
             rows.forEach(row => {
                 if (row[0] === undefined) return;
-                // FORÇA CONVERSÃO PARA STRING PARA GARANTIR O MATCH
-                const code = String(row[0]).trim(); 
-                const desc = row[1]; // Coluna B
-                if (code) MasterData.descriptions[code] = desc;
+                const code = DataUtils.normalizeCode(row[0]);
+                const desc = row[1];
+                
+                if (code && desc) {
+                    MasterData.descriptions[code] = String(desc).trim();
+                    count++;
+                }
             });
-            console.log('BaseTanabi carregada:', Object.keys(MasterData.descriptions).length, 'itens.');
+            console.log(`[BaseTanabi] Carregados ${count} itens.`);
+        } else {
+            console.warn('[BaseTanabi] Arquivo não encontrado ou erro no download.');
         }
 
         // 2. Carregar Preços (Valores.xlsx)
+        // Coluna A = Código, Coluna J (index 9) = Valor Unitário
         const valBuffer = await GithubDB.fetchBinaryFile('Valores.xlsx');
         if (valBuffer) {
             const wb = XLSX.read(valBuffer, {type: 'array'});
             const ws = wb.Sheets[wb.SheetNames[0]];
-            // Ler Coluna A (Código) e J (Indice 9 - Valor)
             const rows = XLSX.utils.sheet_to_json(ws, {header: 1});
+            
+            let count = 0;
             rows.forEach(row => {
                 if (row[0] === undefined) return;
-                // FORÇA CONVERSÃO PARA STRING
-                const code = String(row[0]).trim();
-                const priceRaw = row[9]; // Coluna J (Indice 9)
-                let price = 0;
+                const code = DataUtils.normalizeCode(row[0]);
                 
-                if (typeof priceRaw === 'number') {
-                    price = priceRaw;
-                } else if (typeof priceRaw === 'string') {
-                    // Limpeza pesada para garantir que vire número: remove R$, remove pontos de milhar, troca virgula decimal por ponto
-                    // Ex: "R$ 1.500,20" -> "1500.20"
-                    const cleanStr = priceRaw.replace(/[R$\s]/g, '').replace(/\./g, '').replace(',', '.');
-                    price = parseFloat(cleanStr);
+                // Pega valor da coluna J (index 9)
+                // Se for undefined, tenta pegar como string ou numero
+                const priceRaw = row[9]; 
+                
+                if (code && priceRaw !== undefined) {
+                    const price = DataUtils.parseMoney(priceRaw);
+                    if (!isNaN(price)) {
+                        MasterData.prices[code] = price;
+                        count++;
+                    }
                 }
-                
-                if (code && !isNaN(price)) MasterData.prices[code] = price;
             });
-            console.log('Valores carregada:', Object.keys(MasterData.prices).length, 'itens.');
+            console.log(`[Valores] Carregados ${count} itens.`);
+        } else {
+            console.warn('[Valores] Arquivo não encontrado ou erro no download.');
         }
 
         MasterData.isLoaded = true;
         if(statusEl) {
-            statusEl.innerHTML = `<i data-lucide="check-circle" class="w-4 h-4 text-green-600"></i><span class="text-green-700 font-medium">Bases de dados carregadas! Pode digitar.</span>`;
+            statusEl.innerHTML = `<i data-lucide="check-circle" class="w-4 h-4 text-green-600"></i><span class="text-green-700 font-medium">Base de dados sincronizada!</span>`;
             lucide.createIcons();
             
-            // Tenta rodar o autofill caso o usuário já tenha colado algo antes de carregar
+            // Tenta processar o que já estiver na tela
             inventory.triggerAutoFill();
         }
     }
@@ -344,7 +377,7 @@ const router = {
 let previewData = [];
 
 const inventory = {
-    // Função separada para ser chamada no evento e na inicialização
+    // FUNÇÃO PRINCIPAL: PREENCHIMENTO AUTOMÁTICO
     triggerAutoFill: () => {
         if (!MasterData.isLoaded) return;
         
@@ -358,52 +391,62 @@ const inventory = {
         const codes = codeInput.value.split('\n');
         const saps = sapInput.value.split('\n');
         
-        // Reconstroi as descrições
-        const newDescs = codes.map((codeRaw, i) => {
-            const code = codeRaw.trim();
-            if(!code) return '';
-            // Procura exato match
-            return MasterData.descriptions[code] || '';
-        });
+        // Arrays para os novos valores calculados
+        const newDescs = [];
+        const newVals = [];
 
-        // Reconstroi os valores
-        const newVals = codes.map((codeRaw, i) => {
-            const code = codeRaw.trim();
-            if(!code) return '';
+        codes.forEach((codeRaw, i) => {
+            const code = DataUtils.normalizeCode(codeRaw);
             
-            // Pega quantidade (Se vazio ou inválido, assume 0 para não gerar valor fantasma, ou 1 se preferir padrão)
+            // 1. DESCRIÇÃO
+            // Busca descrição pelo código normalizado
+            const desc = MasterData.descriptions[code];
+            newDescs.push(desc || ''); // Se não achar, deixa vazio
+
+            // 2. VALOR (Unitário * Quantidade)
             const qtyStr = saps[i] ? saps[i].replace(',', '.') : '0';
             let qty = parseFloat(qtyStr);
-            if (isNaN(qty)) qty = 0; // Se não tem quantidade, valor total é 0
+            if (isNaN(qty)) qty = 0;
             
-            // Pega preço unitário
             const unitPrice = MasterData.prices[code];
             
-            if (unitPrice && !isNaN(unitPrice)) {
+            if (unitPrice !== undefined && !isNaN(unitPrice)) {
+                // Se o usuário digitou qtd, calcula total. Se não, mostra unitário ou zero? 
+                // Regra do usuário: "se eu colocar quantidade no SAP 10 ele faz o valor unitario * 10"
+                // Se Qtd for 0, total é 0.
                 const total = unitPrice * qty;
-                return total.toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'});
+                newVals.push(total.toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'}));
+            } else {
+                newVals.push('');
             }
-            return '';
         });
 
-        // Atualiza os campos de Texto e Valor
+        // Atualiza a tela APENAS se houver algo para mostrar, para não apagar dados manuais se a busca falhar totalmente
+        // Mas aqui queremos garantir que se a busca funcionar, ela sobrescreve.
+        
+        // Recria as strings com quebra de linha
         descInput.value = newDescs.join('\n');
         valInput.value = newVals.join('\n');
     },
 
     setupListeners: () => {
-        // Adiciona ouvintes para reagir à digitação IMEDIATAMENTE (input)
+        // Ouve digitação no CÓDIGO e na QUANTIDADE SAP
         const codeInput = document.getElementById('input-code');
         const sapInput = document.getElementById('input-sap');
 
+        const handleInput = () => {
+            // Pequeno delay para não travar digitação rápida e dar tempo do paste processar
+            requestAnimationFrame(() => {
+                inventory.triggerAutoFill();
+            });
+        };
+
         if (codeInput) {
-            codeInput.addEventListener('input', inventory.triggerAutoFill);
-            // Também dispara se colar dados
-            codeInput.addEventListener('paste', () => setTimeout(inventory.triggerAutoFill, 100)); 
+            codeInput.addEventListener('input', handleInput);
         }
         
         if (sapInput) {
-            sapInput.addEventListener('input', inventory.triggerAutoFill);
+            sapInput.addEventListener('input', handleInput);
         }
     },
 
@@ -420,33 +463,26 @@ const inventory = {
         if (codes[0] === "") return alert("Cole os dados primeiro (Pelo menos o código).");
 
         previewData = codes.map((codeRaw, i) => {
-            if (!codeRaw) return null;
-            const code = codeRaw.trim();
+            const code = DataUtils.normalizeCode(codeRaw);
+            if (!code) return null;
             
-            // 1. Descrição: Prioridade para o que está na caixa de texto (que foi preenchida pelo autoFill)
-            // Se estiver vazio, tenta buscar de novo no MasterData por segurança
+            // 1. Descrição (Prioriza o que está na tela, que veio do autofill)
             let description = descs[i] ? descs[i].trim() : '';
-            if ((!description || description === '') && MasterData.descriptions[code]) {
-                description = MasterData.descriptions[code];
-            }
+            if (!description) description = MasterData.descriptions[code] || '';
 
             // 2. Quantidades
-            const sapQ = parseFloat((saps[i] || '0').replace(',', '.'));
-            const physQ = parseFloat((physs[i] || '0').replace(',', '.'));
+            const sapQ = DataUtils.parseMoney(saps[i] || '0');
+            const physQ = DataUtils.parseMoney(physs[i] || '0');
             
-            // 3. Valor Total SAP: Usa o digitado/calculado na tela
-            let rawVal = (vals[i] || '').trim();
+            // 3. Valor Total SAP (Prioriza tela)
             let sapVal = 0;
-
+            const rawVal = (vals[i] || '').trim();
             if (rawVal) {
-                // Remove R$ e converte para float
-                sapVal = parseFloat(rawVal.replace(/[R$\s]/g, '').replace(/\./g, '').replace(',', '.')) || 0;
+                sapVal = DataUtils.parseMoney(rawVal);
             } else {
-                // Fallback: tenta calcular se estiver vazio
-                const unitPrice = MasterData.prices[code];
-                if (unitPrice && !isNaN(unitPrice)) {
-                    sapVal = sapQ * unitPrice;
-                }
+                // Fallback cálculo
+                const unitPrice = MasterData.prices[code] || 0;
+                sapVal = sapQ * unitPrice;
             }
             
             const unitVal = sapQ !== 0 ? sapVal / sapQ : 0;
@@ -455,7 +491,7 @@ const inventory = {
 
             return {
                 id: Date.now() + Math.random(),
-                code: code,
+                code: codeRaw.trim(), // Salva o código original visualmente
                 desc: description,
                 wh: whs[i] || 'GERAL',
                 sapQ,
@@ -464,7 +500,6 @@ const inventory = {
                 divQ,
                 divVal,
                 date: new Date().toLocaleDateString('pt-BR'),
-                // NOVOS CAMPOS: REGISTRO DE USUÁRIO (NOME E CARGO)
                 registeredBy: auth.user.name,
                 registeredRole: auth.user.role === 'ADMIN' ? 'Administrador' : 'Balconista'
             };
@@ -595,126 +630,6 @@ const inventory = {
         a.href = url;
         a.download = `inventario_vertente_${dateFilter === 'ALL' ? 'geral' : dateFilter.replace(/\//g, '-')}.csv`;
         a.click();
-    }
-};
-
-// --- DASHBOARD ---
-const dashboard = {
-    chartInstance: null,
-    
-    render: () => {
-        const dates = DB.getUniqueDates();
-        const select = document.getElementById('dashboard-date-filter');
-        if (select.options.length <= 1 && dates.length > 0) {
-            ui.populateDateSelect('dashboard-date-filter', dates, true);
-        }
-
-        const selectedDate = select.value;
-        const allData = DB.getInventory();
-        const data = selectedDate === 'ALL' ? allData : allData.filter(i => i.date === selectedDate);
-        
-        const totalItems = data.length;
-        const itemsOk = data.filter(i => i.divQ === 0).length;
-        const accuracy = totalItems ? ((itemsOk / totalItems) * 100).toFixed(1) : 0;
-        const totalDivVal = data.reduce((acc, curr) => acc + curr.divVal, 0);
-        const totalSapVal = data.reduce((acc, curr) => acc + curr.sapVal, 0);
-
-        document.getElementById('kpi-total').innerText = totalItems;
-        document.getElementById('kpi-accuracy').innerText = accuracy + '%';
-        document.getElementById('kpi-divergence').innerText = totalDivVal.toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'});
-        document.getElementById('kpi-sap-value').innerText = totalSapVal.toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'});
-
-        const whMap = {};
-        data.forEach(i => {
-            const wh = i.wh || 'N/A';
-            if (!whMap[wh]) whMap[wh] = 0;
-            whMap[wh] += Math.abs(i.divVal);
-        });
-
-        const ctx = document.getElementById('chart-divergence').getContext('2d');
-        if (dashboard.chartInstance) dashboard.chartInstance.destroy();
-
-        dashboard.chartInstance = new Chart(ctx, {
-            type: 'bar',
-            data: {
-                labels: Object.keys(whMap),
-                datasets: [{
-                    label: 'Divergência Absoluta (R$)',
-                    data: Object.values(whMap),
-                    backgroundColor: '#0ea5e9',
-                    borderRadius: 4,
-                    barThickness: 40
-                }]
-            },
-            options: { 
-                responsive: true, 
-                maintainAspectRatio: false,
-                plugins: {
-                    legend: { display: false }
-                },
-                scales: {
-                    y: { beginAtZero: true, grid: { color: '#f1f5f9' } },
-                    x: { grid: { display: false } }
-                }
-            }
-        });
-    }
-};
-
-// --- USUÁRIOS ---
-const users = {
-    render: () => {
-        const list = DB.getUsers();
-        const tbody = document.getElementById('users-body');
-        
-        tbody.innerHTML = list.map(u => `
-            <tr class="hover:bg-gray-50 transition-colors">
-                <td class="px-4 py-3 text-gray-900 font-medium">${u.name}</td>
-                <td class="px-4 py-3 text-gray-500">${u.username}</td>
-                <td class="px-4 py-3">
-                    <span class="px-2 py-1 rounded-full text-xs font-bold ${u.role === 'ADMIN' ? 'bg-purple-100 text-purple-700' : 'bg-green-100 text-green-700'}">
-                        ${u.role}
-                    </span>
-                </td>
-                <td class="px-4 py-3 text-right">
-                    ${u.username !== 'mvfujimura' && u.id !== auth.user.id 
-                        ? `<button onclick="users.delete('${u.username}')" class="text-red-500 hover:bg-red-50 p-1 rounded transition-colors"><i data-lucide="trash-2" class="w-4 h-4"></i></button>` 
-                        : '<span class="text-xs text-gray-300">Bloqueado</span>'}
-                </td>
-            </tr>
-        `).join('');
-        lucide.createIcons();
-    },
-
-    add: async (e) => {
-        e.preventDefault();
-        const name = document.getElementById('new-user-name').value;
-        const username = document.getElementById('new-user-login').value;
-        const password = document.getElementById('new-user-pass').value;
-        const role = document.getElementById('new-user-role').value;
-        
-        const current = DB.getUsers();
-        
-        if(current.find(u => u.username === username)) {
-            alert('Este login já existe.');
-            return;
-        }
-
-        const success = await DB.update('users', [...current, { id: Date.now(), name, username, password, role }]);
-        
-        if (success) {
-            e.target.reset();
-            users.render();
-            alert('Usuário salvo no GitHub!');
-        }
-    },
-
-    delete: async (username) => {
-        if(confirm(`Remover o usuário ${username}?`)) {
-            const current = DB.getUsers().filter(u => u.username !== username);
-            const success = await DB.update('users', current);
-            if (success) users.render();
-        }
     }
 };
 
