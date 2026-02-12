@@ -1,4 +1,4 @@
-// --- CONFIGURAÇÃO GITHUB (PREENCHA AQUI) ---
+// --- CONFIGURAÇÃO GITHUB ---
 const GITHUB_CONFIG = {
     OWNER: 'MatheusFujimura1', 
     REPO: 'InventarioOficial',   
@@ -9,26 +9,22 @@ const GITHUB_CONFIG = {
 
 // --- UTILS DE DADOS ---
 const DataUtils = {
-    // Normaliza o código para texto, sem espaços e maiúsculo
+    // Normaliza o código: remove espaços, converte para string e maiúsculo
     normalizeCode: (code) => {
         if (code === undefined || code === null) return '';
-        // Converte para string, remove espaços e caracteres invisíveis
         return String(code).replace(/\s+/g, '').trim().toUpperCase();
     },
     
-    // Tenta limpar valores monetários do Excel (R$ 1.200,50 -> 1200.50) ou Textos (6,29 -> 6.29)
+    // Tenta limpar valores monetários
     parseMoney: (val) => {
         if (typeof val === 'number') return val;
         if (typeof val === 'string') {
-            // Se estiver vazio
             if (!val.trim()) return 0;
-            // Remove R$, espaços
             let clean = val.replace(/[R$\s]/g, '');
-            // Se tiver vírgula e ponto (1.200,50), remove ponto de milhar e troca vírgula por ponto
+            // Lógica para detectar formato brasileiro (1.000,00) vs americano (1,000.00)
             if (clean.includes(',') && clean.includes('.')) {
                 clean = clean.replace(/\./g, '').replace(',', '.');
             } else if (clean.includes(',')) {
-                // Apenas vírgula (6,29) -> 6.29
                 clean = clean.replace(',', '.');
             }
             const num = parseFloat(clean);
@@ -82,8 +78,6 @@ const GithubDB = {
     fetchBinaryFile: async (filename) => {
         try {
             const url = `https://api.github.com/repos/${GITHUB_CONFIG.OWNER}/${GITHUB_CONFIG.REPO}/contents/${filename}?ref=${GITHUB_CONFIG.BRANCH}`;
-            console.log(`Baixando Excel: ${url}`);
-            
             const response = await fetch(url, {
                 headers: {
                     'Authorization': `token ${GITHUB_CONFIG.TOKEN}`,
@@ -91,13 +85,9 @@ const GithubDB = {
                 }
             });
 
-            if (!response.ok) {
-                console.error(`Falha ao baixar ${filename}: ${response.status}`);
-                return null;
-            }
+            if (!response.ok) return null;
 
             const json = await response.json();
-            // Converter Base64 para ArrayBuffer
             const binaryString = atob(json.content.replace(/\s/g, ''));
             const len = binaryString.length;
             const bytes = new Uint8Array(len);
@@ -138,17 +128,13 @@ const GithubDB = {
                 body: JSON.stringify(body)
             });
 
-            if (!response.ok) {
-                const err = await response.json();
-                throw new Error(err.message);
-            }
+            if (!response.ok) throw new Error('Falha ao salvar');
 
             const json = await response.json();
             GithubDB.sha = json.content.sha;
             GithubDB.data = newData;
             return true;
         } catch (error) {
-            console.error('Erro ao salvar:', error);
             alert('Erro ao salvar no GitHub: ' + error.message);
             return false;
         } finally {
@@ -159,38 +145,28 @@ const GithubDB = {
 
 // --- DADOS MESTRES (EXCEL - VALORES.XLSX) ---
 const MasterData = {
-    descriptions: {}, // Mapa: Código Normalizado -> Descrição
-    prices: {},       // Mapa: Código Normalizado -> Valor Unitário (Coluna J)
+    descriptions: {}, 
+    prices: {},       
     isLoaded: false,
 
     init: async () => {
         const statusEl = document.getElementById('master-data-status');
-        if(statusEl) {
-            statusEl.innerHTML = `<div class="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-600"></div><span class="text-gray-600">Baixando Valores.xlsx do GitHub...</span>`;
-        }
+        if(statusEl) statusEl.innerHTML = `<div class="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-600"></div><span class="text-gray-600">Baixando Valores.xlsx...</span>`;
 
-        // Tenta baixar do GitHub
         const valBuffer = await GithubDB.fetchBinaryFile('Valores.xlsx');
         
         if (valBuffer) {
             const wb = XLSX.read(valBuffer, {type: 'array'});
             MasterData.processWorkbook(wb, 'GitHub');
         } else {
-            console.warn('[Valores.xlsx] Arquivo não encontrado no GitHub.');
-            if(statusEl) {
-                statusEl.innerHTML = `<i data-lucide="alert-circle" class="w-4 h-4 text-red-600"></i><span class="text-red-700 font-medium">Erro no GitHub. Tente carregar do PC.</span>`;
-                lucide.createIcons();
-            }
+            if(statusEl) statusEl.innerHTML = `<i data-lucide="alert-circle" class="w-4 h-4 text-red-600"></i><span class="text-red-700 font-medium">Não encontrado no GitHub. Use "Carregar do PC".</span>`;
+            lucide.createIcons();
         }
     },
 
-    // Função para lidar com upload local
     handleUpload: (input) => {
         const file = input.files[0];
         if(!file) return;
-
-        const statusEl = document.getElementById('master-data-status');
-        if(statusEl) statusEl.innerHTML = `<div class="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-600"></div><span class="text-gray-600">Lendo arquivo local...</span>`;
 
         const reader = new FileReader();
         reader.onload = (e) => {
@@ -201,55 +177,180 @@ const MasterData = {
         reader.readAsArrayBuffer(file);
     },
 
-    // Processa a planilha (seja do Git ou Local)
     processWorkbook: (wb, sourceName) => {
         const statusEl = document.getElementById('master-data-status');
-        const ws = wb.Sheets[wb.SheetNames[0]];
-        // Header: 1 gera um array de arrays [[A1, B1, ...], [A2, B2, ...]]
+        
+        // Pega a primeira aba
+        const sheetName = wb.SheetNames[0];
+        const ws = wb.Sheets[sheetName];
+        
+        // Converte para array de arrays
         const rows = XLSX.utils.sheet_to_json(ws, {header: 1});
         
+        // --- LÓGICA DE DETECÇÃO DO CABEÇALHO ---
+        // Procura a linha que contém "Material" ou "Texto breve"
+        let headerIndex = -1;
+        for (let i = 0; i < Math.min(rows.length, 20); i++) {
+            const rowStr = JSON.stringify(rows[i]).toLowerCase();
+            if (rowStr.includes("material") || rowStr.includes("texto breve")) {
+                headerIndex = i;
+                break;
+            }
+        }
+
+        // Se não achou, assume 0
+        const startIndex = headerIndex === -1 ? 0 : headerIndex + 1;
+        const dataRows = rows.slice(startIndex);
+        
         let count = 0;
-        // Limpa dados anteriores
         MasterData.descriptions = {};
         MasterData.prices = {};
 
-        rows.forEach((row, index) => {
-            // Pula cabeçalho se a linha tiver escrito "Material" na coluna A
-            if (String(row[0]).toLowerCase().includes("material")) return;
+        dataRows.forEach(row => {
+            // Índices baseados na solicitação: 
+            // A (0) = Material
+            // B (1) = Texto Breve
+            // J (9) = Valor Unitário
             
-            if (row[0] === undefined) return;
+            const rawCode = row[0];
+            if (rawCode === undefined || rawCode === null) return;
             
-            const code = DataUtils.normalizeCode(row[0]);
-            const desc = row[1]; // Coluna B (Indice 1)
-            const priceRaw = row[9]; // Coluna J (Indice 9) - Valor Unitário
-            
-            if (code) {
-                // 1. Salva Descrição
-                if (desc) {
-                    MasterData.descriptions[code] = String(desc).trim();
-                }
+            const code = DataUtils.normalizeCode(rawCode);
+            if (!code) return;
 
-                // 2. Salva Preço Unitário
-                if (priceRaw !== undefined) {
-                    const price = DataUtils.parseMoney(priceRaw);
-                    if (!isNaN(price)) {
-                        MasterData.prices[code] = price;
-                    }
-                }
-                count++;
+            const desc = row[1];
+            const priceRaw = row[9]; // Coluna J é índice 9
+
+            // Salva descrição
+            if (desc) MasterData.descriptions[code] = String(desc).trim();
+
+            // Salva preço
+            if (priceRaw !== undefined) {
+                const price = DataUtils.parseMoney(priceRaw);
+                if (!isNaN(price)) MasterData.prices[code] = price;
             }
+            count++;
         });
         
-        console.log(`[Valores.xlsx] Sincronizado via ${sourceName}. ${count} materiais carregados.`);
+        console.log(`[Valores.xlsx] Carregado de ${sourceName}. ${count} itens processados.`);
         
         MasterData.isLoaded = true;
         if(statusEl) {
-            statusEl.innerHTML = `<i data-lucide="check-circle" class="w-4 h-4 text-green-600"></i><span class="text-green-700 font-medium">Base Tereos (${sourceName}) Sincronizada! (${count} itens)</span>`;
+            statusEl.innerHTML = `<i data-lucide="check-circle" class="w-4 h-4 text-green-600"></i><span class="text-green-700 font-medium">Base Tereos (${sourceName}) OK! (${count} itens)</span>`;
             lucide.createIcons();
         }
         
-        // Tenta processar o que já estiver na tela
         inventory.triggerAutoFill();
+    }
+};
+
+// --- DASHBOARD ---
+const dashboard = {
+    chartInstance: null,
+
+    render: () => {
+        const data = DB.getInventory();
+        const dateFilter = document.getElementById('dashboard-date-filter').value;
+        
+        // Filtragem de dados
+        let filteredData = data;
+        if (dateFilter !== 'ALL') {
+            filteredData = data.filter(d => d.date === dateFilter);
+        }
+
+        // --- CÁLCULOS KPI ---
+        const totalItems = filteredData.length;
+        
+        // Itens com divergência (Qtd Física diferente de Qtd SAP)
+        const divergentItems = filteredData.filter(i => i.divQ !== 0);
+        
+        // Acuracidade: (Itens Certos / Total) * 100
+        const accuracy = totalItems > 0 
+            ? ((totalItems - divergentItems.length) / totalItems) * 100 
+            : 0;
+
+        // Divergência Financeira Total (Soma dos valores absolutos ou líquidos? Normalmente líquido para financeiro)
+        const totalDivergenceVal = filteredData.reduce((acc, curr) => acc + curr.divVal, 0);
+        
+        // Valor Total SAP (Quanto vale o estoque teórico)
+        const totalSapVal = filteredData.reduce((acc, curr) => acc + curr.sapVal, 0);
+
+        // --- ATUALIZAR DOM ---
+        document.getElementById('kpi-total').innerText = totalItems;
+        document.getElementById('kpi-accuracy').innerText = `${accuracy.toFixed(1)}%`;
+        
+        const divEl = document.getElementById('kpi-divergence');
+        divEl.innerText = totalDivergenceVal.toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'});
+        divEl.className = `text-2xl font-bold mt-1 ${totalDivergenceVal === 0 ? 'text-gray-800' : (totalDivergenceVal > 0 ? 'text-blue-600' : 'text-red-600')}`;
+
+        document.getElementById('kpi-sap-value').innerText = totalSapVal.toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'});
+
+        // --- GRÁFICO (Chart.js) ---
+        dashboard.renderChart(filteredData);
+    },
+
+    renderChart: (data) => {
+        const ctx = document.getElementById('chart-divergence');
+        if (!ctx) return;
+
+        // Agrupar divergência por Depósito
+        const warehouseGroups = {};
+        data.forEach(item => {
+            if (!warehouseGroups[item.wh]) warehouseGroups[item.wh] = 0;
+            warehouseGroups[item.wh] += item.divVal; // Soma o valor da divergência
+        });
+
+        const labels = Object.keys(warehouseGroups);
+        const values = Object.values(warehouseGroups);
+        const backgroundColors = values.map(v => v < 0 ? '#ef4444' : '#3b82f6'); // Vermelho negativo, Azul positivo
+
+        // Destruir gráfico anterior se existir
+        if (dashboard.chartInstance) {
+            dashboard.chartInstance.destroy();
+        }
+
+        dashboard.chartInstance = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: labels,
+                datasets: [{
+                    label: 'Divergência Financeira (R$)',
+                    data: values,
+                    backgroundColor: backgroundColors,
+                    borderWidth: 1
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        ticks: {
+                            callback: function(value) {
+                                return 'R$ ' + value;
+                            }
+                        }
+                    }
+                },
+                plugins: {
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                let label = context.dataset.label || '';
+                                if (label) {
+                                    label += ': ';
+                                }
+                                if (context.parsed.y !== null) {
+                                    label += new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(context.parsed.y);
+                                }
+                                return label;
+                            }
+                        }
+                    }
+                }
+            }
+        });
     }
 };
 
@@ -394,8 +495,6 @@ const router = {
         if (view === 'dashboard') dashboard.render();
         if (view === 'list') inventory.renderTable();
         if (view === 'users') users.render();
-        
-        // Se for para import, tenta carregar MasterData se ainda não carregou
         if (view === 'import' && !MasterData.isLoaded) MasterData.init();
     }
 };
@@ -404,14 +503,11 @@ const router = {
 let previewData = [];
 
 const inventory = {
-    // FUNÇÃO PRINCIPAL: PREENCHIMENTO AUTOMÁTICO INTELIGENTE
-    // Se encontrar na base, sobrescreve.
-    // Se não encontrar, MANTÉM o que o usuário digitou (para permitir input manual).
     triggerAutoFill: () => {
         const codeInput = document.getElementById('input-code');
-        const sapInput = document.getElementById('input-sap'); // Qtd SAP
-        const descInput = document.getElementById('input-desc'); // Descrição
-        const valInput = document.getElementById('input-val'); // Valor Total
+        const sapInput = document.getElementById('input-sap'); 
+        const descInput = document.getElementById('input-desc'); 
+        const valInput = document.getElementById('input-val'); 
 
         if (!codeInput) return;
 
@@ -426,35 +522,28 @@ const inventory = {
         codeLines.forEach((codeRaw, i) => {
             const code = DataUtils.normalizeCode(codeRaw);
             
-            // Tenta pegar dados da base
             const dbDesc = MasterData.descriptions[code];
             const dbUnitPrice = MasterData.prices[code];
 
-            // Quantidade digitada
             const sapQStr = sapLines[i] ? String(sapLines[i]) : '0';
             const sapQ = DataUtils.parseMoney(sapQStr);
 
-            // 1. DESCRIÇÃO
+            // 1. DESCRIÇÃO: Prioriza DB, senão mantém manual
             if (dbDesc) {
-                // Se existe na base, usa da base
                 newDescs.push(dbDesc);
             } else {
-                // Se NÃO existe na base, mantém o que o usuário digitou (ou vazio)
                 newDescs.push(currentDescLines[i] || '');
             }
 
-            // 2. VALOR TOTAL
+            // 2. VALOR TOTAL: Se tem preço unitário, calcula. Senão mantém manual.
             if (dbUnitPrice !== undefined && !isNaN(dbUnitPrice)) {
-                // Se existe preço unitário na base, calcula
                 const total = dbUnitPrice * sapQ;
                 newVals.push(total.toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'}));
             } else {
-                // Se NÃO existe preço na base, mantém o que o usuário digitou (ou vazio)
                 newVals.push(currentValLines[i] || '');
             }
         });
 
-        // Atualiza campos
         descInput.value = newDescs.join('\n');
         valInput.value = newVals.join('\n');
     },
@@ -472,6 +561,8 @@ const inventory = {
         if (codeInput) {
             codeInput.addEventListener('input', handleInput);
             codeInput.addEventListener('blur', handleInput);
+            // Detecta 'paste' especificamente para garantir que processou
+            codeInput.addEventListener('paste', () => setTimeout(handleInput, 100));
         }
         
         if (sapInput) {
@@ -496,26 +587,28 @@ const inventory = {
             const code = DataUtils.normalizeCode(codeRaw);
             if (!code) return null;
             
-            // Usa o que está na tela (que pode ser automático OU manual)
+            // Usa o que está na tela (Automático ou Manual)
             const description = descs[i] ? descs[i].trim() : '';
             
-            // Quantidades
             const sapQ = DataUtils.parseMoney(saps[i] || '0');
             const physQ = DataUtils.parseMoney(physs[i] || '0');
             
-            // Valor Total SAP (Usa o que está na tela)
             let sapVal = 0;
             const rawVal = (vals[i] || '').trim();
             sapVal = DataUtils.parseMoney(rawVal);
             
-            // Se não tiver valor na tela e tiver no banco (fallback), calcula
+            // Fallback: se valor for 0 mas tivermos preço no banco
             if (sapVal === 0 && MasterData.prices[code]) {
                 sapVal = sapQ * MasterData.prices[code];
             }
             
-            // Calcula unitário implícito para a divergência
-            // Se tiver Qtd, Unit = Total / Qtd. Se não, tenta pegar do banco. Se não, 0.
-            let unitVal = sapQ !== 0 ? sapVal / sapQ : (MasterData.prices[code] || 0);
+            // Valor Unitário Implícito (para cálculo da divergência)
+            let unitVal = 0;
+            if (sapQ !== 0) {
+                unitVal = sapVal / sapQ;
+            } else if (MasterData.prices[code]) {
+                unitVal = MasterData.prices[code];
+            }
             
             const divQ = physQ - sapQ;
             const divVal = divQ * unitVal;
@@ -664,6 +757,49 @@ const inventory = {
     }
 };
 
+// --- USERS UI (Simples) ---
+const users = {
+    render: () => {
+        const list = DB.getUsers();
+        const tbody = document.getElementById('users-body');
+        tbody.innerHTML = list.map(u => `
+            <tr>
+                <td class="px-4 py-2">${u.name}</td>
+                <td class="px-4 py-2 text-gray-500">${u.username}</td>
+                <td class="px-4 py-2"><span class="px-2 py-1 bg-gray-100 rounded text-xs">${u.role}</span></td>
+                <td class="px-4 py-2 text-right">
+                    ${u.username !== 'mvfujimura' ? `<button onclick="users.remove('${u.id}')" class="text-red-500 hover:text-red-700"><i data-lucide="trash"></i></button>` : ''}
+                </td>
+            </tr>
+        `).join('');
+        lucide.createIcons();
+    },
+    add: async (e) => {
+        e.preventDefault();
+        const name = document.getElementById('new-user-name').value;
+        const user = document.getElementById('new-user-login').value;
+        const pass = document.getElementById('new-user-pass').value;
+        const role = document.getElementById('new-user-role').value;
+
+        const current = DB.getUsers();
+        if(current.find(u => u.username === user)) return alert('Login já existe');
+
+        const newUser = { id: Date.now().toString(), name, username: user, password: pass, role };
+        const success = await DB.update('users', [...current, newUser]);
+        if(success) {
+            users.render();
+            e.target.reset();
+        }
+    },
+    remove: async (id) => {
+        if(confirm('Remover usuário?')) {
+            const current = DB.getUsers();
+            const success = await DB.update('users', current.filter(u => u.id !== id));
+            if(success) users.render();
+        }
+    }
+};
+
 // --- INICIALIZAÇÃO ---
 const app = {
     init: () => {
@@ -672,10 +808,12 @@ const app = {
         document.getElementById('user-role-display').innerText = auth.user.role === 'ADMIN' ? 'Administrador' : 'Balconista';
         document.getElementById('current-date').innerText = new Date().toLocaleDateString('pt-BR');
         
-        // Tenta carregar dados do Excel imediatamente ao iniciar o app
+        // Carrega datas de filtro
+        const dates = DB.getUniqueDates();
+        ui.populateDateSelect('dashboard-date-filter', dates, true);
+
+        // Listeners e MasterData
         MasterData.init();
-        
-        // Ativa os listeners para preenchimento em tempo real
         inventory.setupListeners();
 
         if (auth.user.role !== 'ADMIN') {
