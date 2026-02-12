@@ -27,6 +27,20 @@
       "date": "12/02/2026",
       "registeredBy": "Matheus Fujimura",
       "registeredRole": "Administrador"
+    },
+    {
+      "id": 1770919355929.742,
+      "code": "300500225277",
+      "desc": "OCULOS SEG;PLAS PT;HAST FIX C/ELAST;UNIC",
+      "wh": "DEPI",
+      "sapQ": 100,
+      "physQ": 100,
+      "sapVal": 4674.73,
+      "divQ": 0,
+      "divVal": 0,
+      "date": "12/02/2026",
+      "registeredBy": "Matheus Fujimura",
+      "registeredRole": "Administrador"
     }
   ],
   "users": [
