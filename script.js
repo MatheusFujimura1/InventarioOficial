@@ -158,35 +158,13 @@ const MasterData = {
         const statusEl = document.getElementById('master-data-status');
         if(statusEl) {
             statusEl.classList.remove('hidden');
-            statusEl.innerHTML = `<div class="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-600"></div><span class="text-gray-600">Baixando BaseTanabi.xlsx e Valores.xlsx...</span>`;
+            statusEl.innerHTML = `<div class="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-600"></div><span class="text-gray-600">Baixando Valores.xlsx...</span>`;
         }
 
-        // 1. Carregar Descrições (BaseTanabi.xlsx)
-        // Coluna A = Código, Coluna B = Descrição
-        const baseBuffer = await GithubDB.fetchBinaryFile('BaseTanabi.xlsx');
-        if (baseBuffer) {
-            const wb = XLSX.read(baseBuffer, {type: 'array'});
-            const ws = wb.Sheets[wb.SheetNames[0]];
-            const rows = XLSX.utils.sheet_to_json(ws, {header: 1}); 
-            
-            let count = 0;
-            rows.forEach(row => {
-                if (row[0] === undefined) return;
-                const code = DataUtils.normalizeCode(row[0]);
-                const desc = row[1];
-                
-                if (code && desc) {
-                    MasterData.descriptions[code] = String(desc).trim();
-                    count++;
-                }
-            });
-            console.log(`[BaseTanabi] Carregados ${count} itens.`);
-        } else {
-            console.warn('[BaseTanabi] Arquivo não encontrado ou erro no download.');
-        }
-
-        // 2. Carregar Preços (Valores.xlsx)
-        // Coluna A = Código, Coluna J (index 9) = Valor Unitário
+        // --- CARREGAR DADOS APENAS DE VALORES.XLSX ---
+        // Coluna A (0) = Código
+        // Coluna B (1) = Texto Breve (Descrição)
+        // Coluna J (9) = Valor Unitário
         const valBuffer = await GithubDB.fetchBinaryFile('Valores.xlsx');
         if (valBuffer) {
             const wb = XLSX.read(valBuffer, {type: 'array'});
@@ -197,27 +175,33 @@ const MasterData = {
             rows.forEach(row => {
                 if (row[0] === undefined) return;
                 const code = DataUtils.normalizeCode(row[0]);
+                const desc = row[1]; // Coluna B
+                const priceRaw = row[9]; // Coluna J (index 9)
                 
-                // Pega valor da coluna J (index 9)
-                // Se for undefined, tenta pegar como string ou numero
-                const priceRaw = row[9]; 
-                
-                if (code && priceRaw !== undefined) {
-                    const price = DataUtils.parseMoney(priceRaw);
-                    if (!isNaN(price)) {
-                        MasterData.prices[code] = price;
-                        count++;
+                if (code) {
+                    // 1. Salva Descrição
+                    if (desc) {
+                        MasterData.descriptions[code] = String(desc).trim();
                     }
+
+                    // 2. Salva Preço
+                    if (priceRaw !== undefined) {
+                        const price = DataUtils.parseMoney(priceRaw);
+                        if (!isNaN(price)) {
+                            MasterData.prices[code] = price;
+                        }
+                    }
+                    count++;
                 }
             });
-            console.log(`[Valores] Carregados ${count} itens.`);
+            console.log(`[Valores.xlsx] Processados ${count} itens (Descrições e Preços).`);
         } else {
-            console.warn('[Valores] Arquivo não encontrado ou erro no download.');
+            console.warn('[Valores.xlsx] Arquivo não encontrado ou erro no download.');
         }
 
         MasterData.isLoaded = true;
         if(statusEl) {
-            statusEl.innerHTML = `<i data-lucide="check-circle" class="w-4 h-4 text-green-600"></i><span class="text-green-700 font-medium">Base de dados sincronizada!</span>`;
+            statusEl.innerHTML = `<i data-lucide="check-circle" class="w-4 h-4 text-green-600"></i><span class="text-green-700 font-medium">Base Valores.xlsx sincronizada!</span>`;
             lucide.createIcons();
             
             // Tenta processar o que já estiver na tela
@@ -411,9 +395,7 @@ const inventory = {
             const unitPrice = MasterData.prices[code];
             
             if (unitPrice !== undefined && !isNaN(unitPrice)) {
-                // Se o usuário digitou qtd, calcula total. Se não, mostra unitário ou zero? 
-                // Regra do usuário: "se eu colocar quantidade no SAP 10 ele faz o valor unitario * 10"
-                // Se Qtd for 0, total é 0.
+                // Cálculo: Valor Unitário (do Excel) * Quantidade SAP (Digitada)
                 const total = unitPrice * qty;
                 newVals.push(total.toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'}));
             } else {
@@ -421,9 +403,6 @@ const inventory = {
             }
         });
 
-        // Atualiza a tela APENAS se houver algo para mostrar, para não apagar dados manuais se a busca falhar totalmente
-        // Mas aqui queremos garantir que se a busca funcionar, ela sobrescreve.
-        
         // Recria as strings com quebra de linha
         descInput.value = newDescs.join('\n');
         valInput.value = newVals.join('\n');
