@@ -1,18 +1,5 @@
 {
-  "inventory": [
-    {
-      "id": 1770915976057.9788,
-      "code": "300500000042",
-      "desc": "",
-      "wh": "DP01",
-      "sapQ": 10,
-      "physQ": 5,
-      "sapVal": 0,
-      "divQ": -5,
-      "divVal": 0,
-      "date": "12/02/2026"
-    }
-  ],
+  "inventory": [],
   "users": [
     {
       "id": "root",
