@@ -2,7 +2,7 @@
 const GITHUB_CONFIG = {
     OWNER: 'MatheusFujimura1', 
     REPO: 'InventarioOficial',   
-    TOKEN: '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', 
+    TOKEN: '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', 
     FILE_PATH: 'database.json',
     BRANCH: 'main' 
 };
