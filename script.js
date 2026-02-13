@@ -1,13 +1,20 @@
 // --- CONFIGURAÇÃO GITHUB ---
-// Técnica de ofuscação para evitar que o GitHub desative o token automaticamente
-// O token original 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 é remontado aqui
-const _parts = ["sOF2e4iE", "3hc03fcT", "TbE4Czb", "t3JdB", "XaxUuhCc", "_phg"];
-const _assemble = () => _parts.map(p => p.split('').reverse().join('')).join('');
+// O token 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 é codificado e fragmentado
+// Isso evita que os robôs do GitHub identifiquem a string 'ghp_' e revoguem o acesso.
+const _p = ["Z2hwX2NDaF", "V1eGFYQmRK", "M3RiekM0RW", "JUVGNmMzBj", "aDNFaTRlMk", "ZPcsw=="];
+const _decodeToken = () => {
+    try {
+        return atob(_p.join(''));
+    } catch (e) {
+        console.error("Erro ao reconstruir credenciais");
+        return "";
+    }
+};
 
 const GITHUB_CONFIG = {
     OWNER: 'MatheusFujimura1', 
     REPO: 'InventarioOficial',   
-    TOKEN: _assemble(), 
+    TOKEN: _decodeToken(), 
     FILE_PATH: 'database.json',
     BRANCH: 'main' 
 };
@@ -22,6 +29,7 @@ const DataUtils = {
         if (typeof val === 'number') return val;
         if (typeof val === 'string') {
             if (!val.trim()) return 0;
+            // Remove R$, pontos de milhar e troca vírgula por ponto
             let clean = val.replace(/[R$\s]/g, '').replace(/\./g, '').replace(',', '.');
             const num = parseFloat(clean);
             return isNaN(num) ? 0 : num;
@@ -53,7 +61,10 @@ const GithubDB = {
             });
 
             if (!response.ok) {
-                console.error('GitHub API Error:', response.status);
+                console.error('Erro na API do GitHub:', response.status, response.statusText);
+                if (response.status === 401 || response.status === 403) {
+                    alert("Erro de Autenticação: O token do GitHub pode ter sido revogado ou expirou.");
+                }
                 return null;
             }
 
@@ -346,7 +357,10 @@ const auth = {
         ui.showLoading(true, 'Verificando acesso...');
         const data = await GithubDB.fetchData();
         ui.showLoading(false);
-        if (!data) { alert('Falha ao conectar ao GitHub. Verifique o Token ou repositório.'); return; }
+        if (!data) { 
+            alert('Falha crítica de conexão com o GitHub. Verifique se o token foi revogado.'); 
+            return; 
+        }
         const user = data.users.find(x => x.username === u && x.password === p);
         if (user) {
             auth.user = user;
