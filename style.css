@@ -18,8 +18,9 @@ body {
 }
 
 .input-area {
-    @apply border p-2 text-[11px] rounded resize-none focus:ring-1 focus:ring-orange-500 outline-none transition-all;
+    @apply border border-gray-400 p-2 text-[11px] rounded resize-none focus:ring-2 focus:ring-orange-500 focus:border-orange-500 outline-none transition-all;
     font-family: monospace;
+    background-color: #fff;
 }
 
 .nav-btn-active {
