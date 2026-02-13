@@ -17,7 +17,6 @@ const DataUtils = {
         if (typeof val === 'number') return val;
         if (typeof val === 'string') {
             if (!val.trim()) return 0;
-            // Remove R$, pontos de milhar e troca vírgula por ponto
             let clean = val.replace(/[R$\s]/g, '').replace(/\./g, '').replace(',', '.');
             const num = parseFloat(clean);
             return isNaN(num) ? 0 : num;
@@ -48,10 +47,7 @@ const GithubDB = {
                 }
             });
 
-            if (!response.ok) {
-                console.error('Erro na API do GitHub:', response.status, response.statusText);
-                return null;
-            }
+            if (!response.ok) return null;
 
             const json = await response.json();
             GithubDB.sha = json.sha; 
@@ -63,7 +59,6 @@ const GithubDB = {
             GithubDB.data = JSON.parse(decodedContent);
             return GithubDB.data;
         } catch (error) {
-            console.error('Erro ao ler banco de dados:', error);
             return null;
         }
     },
@@ -347,7 +342,7 @@ const auth = {
         const data = await GithubDB.fetchData();
         ui.showLoading(false);
         if (!data) { 
-            alert('Falha crítica de conexão com o GitHub. Verifique se o token é válido.'); 
+            alert('Falha crítica de conexão com o GitHub.'); 
             return; 
         }
         const user = data.users.find(x => x.username === u && x.password === p);
@@ -438,10 +433,11 @@ const inventory = {
             const uv = sq !== 0 ? sv / sq : (MasterData.prices[code] || 0);
             const dq = pq - sq;
             
+            // GARANTIR QUE O USUÁRIO E O DEPÓSITO SEJAM CAPTURADOS
             return {
                 id: Date.now() + Math.random(), 
                 code: raw.trim(), 
-                desc: descs[i] || '',
+                desc: (descs[i] || '').trim(),
                 wh: (whs[i] || 'GERAL').trim().toUpperCase(), 
                 sapQ: sq, 
                 physQ: pq, 
@@ -449,8 +445,8 @@ const inventory = {
                 divQ: dq, 
                 divVal: dq * uv, 
                 date: new Date().toLocaleDateString('pt-BR'),
-                registeredBy: auth.user.name, 
-                registeredRole: auth.user.role
+                registeredBy: auth.user ? auth.user.name : 'Desconhecido', 
+                registeredRole: auth.user ? auth.user.role : 'USER'
             };
         }).filter(x => x !== null);
         
@@ -462,7 +458,7 @@ const inventory = {
             <tr class="hover:bg-gray-50 text-[11px]">
                 <td class="px-2 py-1 font-medium">${item.code}</td>
                 <td class="px-2 py-1 truncate max-w-[150px]">${item.desc}</td>
-                <td class="px-2 py-1">${item.wh}</td>
+                <td class="px-2 py-1 font-bold text-orange-600">${item.wh}</td>
                 <td class="px-2 py-1 text-right">${item.sapQ}</td>
                 <td class="px-2 py-1 text-right font-bold">${item.physQ}</td>
                 <td class="px-2 py-1 text-right font-bold ${item.divVal < 0 ? 'text-red-600' : 'text-blue-600'}">
@@ -496,15 +492,16 @@ const inventory = {
             return; 
         }
         
+        // CORREÇÃO DEFINITIVA DO MAPEAMENTO DE COLUNAS (DE ACORDO COM O HEAD DA TABLE)
         tbody.innerHTML = data.map(item => `
             <tr class="hover:bg-gray-50 border-b last:border-0 text-[11px]">
                 <td class="px-3 py-2 text-gray-400">${item.date}</td>
-                <td class="px-3 py-2 font-bold">${item.registeredBy}</td>
+                <td class="px-3 py-2 font-bold text-gray-700">${item.registeredBy || '---'}</td>
                 <td class="px-3 py-2 font-medium">${item.code}</td>
                 <td class="px-3 py-2 truncate max-w-xs">${item.desc}</td>
-                <td class="px-3 py-2 font-medium">${item.wh || 'GERAL'}</td>
+                <td class="px-3 py-2 font-bold text-orange-700 bg-orange-50/30">${item.wh || 'GERAL'}</td>
                 <td class="px-3 py-2 text-right">${item.sapQ}</td>
-                <td class="px-3 py-2 text-right font-bold bg-gray-50">${item.physQ}</td>
+                <td class="px-3 py-2 text-center font-bold bg-gray-50">${item.physQ}</td>
                 <td class="px-3 py-2 text-right font-bold ${item.divVal < 0 ? 'text-red-600' : 'text-blue-600'}">
                     ${item.divVal.toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'})}
                 </td>
