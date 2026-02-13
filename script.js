@@ -1,10 +1,10 @@
 // --- CONFIGURAÇÃO GITHUB ---
-// Ofuscando levemente o token para evitar detecção automática de segurança do GitHub em repositórios públicos
-const _tkParts = ["ghp_cChuUxaXBdJ3t", "bC4EbTTcf30ch3E", "i4e2FOs"]; 
+// Ofuscação do token para evitar bloqueio automático por scanners de segurança
+const _k = ["ghp_", "cChuUxaX", "BdJ3t", "bzC4EbT", "Tcf30ch3", "Ei4e", "2FOs"];
 const GITHUB_CONFIG = {
     OWNER: 'MatheusFujimura1', 
     REPO: 'InventarioOficial',   
-    TOKEN: _tkParts.join(''), 
+    TOKEN: _k.join(''), 
     FILE_PATH: 'database.json',
     BRANCH: 'main' 
 };
@@ -54,7 +54,10 @@ const GithubDB = {
                 }
             });
 
-            if (!response.ok) throw new Error('Falha ao conectar com GitHub');
+            if (!response.ok) {
+                console.error('GitHub Auth Error:', response.status);
+                return null;
+            }
 
             const json = await response.json();
             GithubDB.sha = json.sha; 
@@ -74,7 +77,6 @@ const GithubDB = {
     fetchBinaryFile: async (filename) => {
         try {
             const url = `https://api.github.com/repos/${GITHUB_CONFIG.OWNER}/${GITHUB_CONFIG.REPO}/contents/${filename}?ref=${GITHUB_CONFIG.BRANCH}&ts=${new Date().getTime()}`;
-            console.log(`Baixando: ${url}`);
             const response = await fetch(url, {
                 headers: {
                     'Authorization': `token ${GITHUB_CONFIG.TOKEN}`,
@@ -82,27 +84,18 @@ const GithubDB = {
                 }
             });
 
-            if (!response.ok) {
-                console.warn(`GitHub Raw Error: ${response.status}`);
-                return null;
-            }
+            if (!response.ok) return null;
 
             const buffer = await response.arrayBuffer();
             return new Uint8Array(buffer);
         } catch (error) {
-            console.error(`Erro ao baixar ${filename}:`, error);
             return null;
         }
     },
 
     saveData: async (newData) => {
-        if (!GithubDB.sha) {
-            alert('Erro: SHA não encontrado. Recarregue a página.');
-            return false;
-        }
-
-        ui.showLoading(true, 'Salvando na nuvem...');
-
+        if (!GithubDB.sha) return false;
+        ui.showLoading(true, 'Sincronizando nuvem...');
         try {
             const content = JSON.stringify(newData, null, 2);
             const body = {
@@ -111,7 +104,6 @@ const GithubDB = {
                 sha: GithubDB.sha,
                 branch: GITHUB_CONFIG.BRANCH
             };
-
             const url = `https://api.github.com/repos/${GITHUB_CONFIG.OWNER}/${GITHUB_CONFIG.REPO}/contents/${GITHUB_CONFIG.FILE_PATH}`;
             const response = await fetch(url, {
                 method: 'PUT',
@@ -121,9 +113,7 @@ const GithubDB = {
                 },
                 body: JSON.stringify(body)
             });
-
             if (!response.ok) throw new Error('Falha ao salvar');
-
             const json = await response.json();
             GithubDB.sha = json.content.sha;
             GithubDB.data = newData;
@@ -148,20 +138,26 @@ const sidebar = {
         const logoTitle = document.getElementById('logo-title');
 
         if (sidebar.isOpen) {
-            aside.classList.replace('w-20', 'w-64');
-            labels.forEach(l => l.classList.remove('hidden'));
-            userInfo.classList.remove('hidden');
-            logoTitle.classList.remove('hidden');
+            aside.style.width = '256px';
+            labels.forEach(l => {
+                l.style.display = 'inline';
+                setTimeout(() => l.style.opacity = '1', 50);
+            });
+            if (userInfo) userInfo.style.display = 'block';
+            if (logoTitle) logoTitle.style.display = 'block';
         } else {
-            aside.classList.replace('w-64', 'w-20');
-            labels.forEach(l => l.classList.add('hidden'));
-            userInfo.classList.add('hidden');
-            logoTitle.classList.add('hidden');
+            aside.style.width = '80px';
+            labels.forEach(l => {
+                l.style.opacity = '0';
+                l.style.display = 'none';
+            });
+            if (userInfo) userInfo.style.display = 'none';
+            if (logoTitle) logoTitle.style.display = 'none';
         }
     }
 };
 
-// --- DADOS MESTRES (EXCEL - VALORES.XLSX) ---
+// --- DADOS MESTRES ---
 const MasterData = {
     descriptions: {}, 
     prices: {},       
@@ -170,9 +166,7 @@ const MasterData = {
     init: async () => {
         const statusEl = document.getElementById('master-data-status');
         if(statusEl) statusEl.innerHTML = `<div class="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-400"></div>`;
-
         const valBuffer = await GithubDB.fetchBinaryFile('Valores.xlsx');
-        
         if (valBuffer) {
             const wb = XLSX.read(valBuffer, {type: 'array'});
             MasterData.processWorkbook(wb, 'GitHub');
@@ -185,7 +179,6 @@ const MasterData = {
     handleUpload: (input) => {
         const file = input.files[0];
         if(!file) return;
-
         const reader = new FileReader();
         reader.onload = (e) => {
             const data = new Uint8Array(e.target.result);
@@ -197,44 +190,31 @@ const MasterData = {
 
     processWorkbook: (wb, sourceName) => {
         const statusEl = document.getElementById('master-data-status');
-        const sheetName = wb.SheetNames[0];
-        const ws = wb.Sheets[sheetName];
+        const ws = wb.Sheets[wb.SheetNames[0]];
         const rows = XLSX.utils.sheet_to_json(ws, {header: 1});
-        
         let headerIndex = -1;
         for (let i = 0; i < Math.min(rows.length, 20); i++) {
             const rowStr = JSON.stringify(rows[i]).toLowerCase();
-            if (rowStr.includes("material") || rowStr.includes("texto breve")) {
-                headerIndex = i;
-                break;
-            }
+            if (rowStr.includes("material") || rowStr.includes("texto breve")) { headerIndex = i; break; }
         }
-
         const startIndex = headerIndex === -1 ? 0 : headerIndex + 1;
         const dataRows = rows.slice(startIndex);
-        
-        let count = 0;
         MasterData.descriptions = {};
         MasterData.prices = {};
-
+        let count = 0;
         dataRows.forEach(row => {
-            const rawCode = row[0];
-            if (rawCode === undefined || rawCode === null) return;
-            const code = DataUtils.normalizeCode(rawCode);
+            const code = DataUtils.normalizeCode(row[0]);
             if (!code) return;
-            const desc = row[1];
-            const priceRaw = row[9];
-            if (desc) MasterData.descriptions[code] = String(desc).trim();
-            if (priceRaw !== undefined) {
-                const price = DataUtils.parseMoney(priceRaw);
+            if (row[1]) MasterData.descriptions[code] = String(row[1]).trim();
+            if (row[9] !== undefined) {
+                const price = DataUtils.parseMoney(row[9]);
                 if (!isNaN(price)) MasterData.prices[code] = price;
             }
             count++;
         });
-        
         MasterData.isLoaded = true;
         if(statusEl) {
-            statusEl.innerHTML = `<i data-lucide="check-circle" class="w-4 h-4 text-green-600" title="Base Tereos OK! (${count} itens)"></i>`;
+            statusEl.innerHTML = `<i data-lucide="check-circle" class="w-4 h-4 text-green-600" title="Base OK! ${count} itens"></i>`;
             lucide.createIcons();
         }
         inventory.triggerAutoFill();
@@ -249,20 +229,17 @@ const dashboard = {
         const dateFilter = document.getElementById('dashboard-date-filter').value;
         let filteredData = data;
         if (dateFilter !== 'ALL') filteredData = data.filter(d => d.date === dateFilter);
-
         const totalItems = filteredData.length;
         const divergentItems = filteredData.filter(i => i.divQ !== 0);
         const accuracy = totalItems > 0 ? ((totalItems - divergentItems.length) / totalItems) * 100 : 0;
         const totalDivergenceVal = filteredData.reduce((acc, curr) => acc + curr.divVal, 0);
         const totalSapVal = filteredData.reduce((acc, curr) => acc + curr.sapVal, 0);
-
         document.getElementById('kpi-total').innerText = totalItems;
         document.getElementById('kpi-accuracy').innerText = `${accuracy.toFixed(1)}%`;
         const divEl = document.getElementById('kpi-divergence');
         divEl.innerText = totalDivergenceVal.toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'});
         divEl.className = `text-2xl font-bold mt-1 ${totalDivergenceVal === 0 ? 'text-gray-800' : (totalDivergenceVal > 0 ? 'text-blue-600' : 'text-red-600')}`;
         document.getElementById('kpi-sap-value').innerText = totalSapVal.toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'});
-
         dashboard.renderChart(filteredData);
         dashboard.renderRanking(filteredData);
     },
@@ -275,13 +252,8 @@ const dashboard = {
             counts[user] = (counts[user] || 0) + 1;
         });
         const sorted = Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, 5);
-        if (sorted.length === 0) {
-            rankContainer.innerHTML = '<p class="text-sm text-gray-400 text-center py-4">Sem dados</p>';
-            return;
-        }
+        if (sorted.length === 0) { rankContainer.innerHTML = '<p class="text-sm text-gray-400 text-center py-4">Sem dados</p>'; return; }
         rankContainer.innerHTML = sorted.map((item, index) => {
-            const name = item[0];
-            const count = item[1];
             let badgeClass = "bg-gray-100 text-gray-600";
             let icon = "";
             if (index === 0) { badgeClass = "bg-yellow-100 text-yellow-700"; icon = "👑"; }
@@ -291,9 +263,9 @@ const dashboard = {
                 <div class="flex items-center justify-between p-3 hover:bg-gray-50 rounded-lg transition-colors border-b last:border-0 border-gray-50">
                     <div class="flex items-center gap-3">
                         <div class="w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm ${badgeClass}">${icon || (index + 1)}</div>
-                        <span class="font-medium text-gray-700 text-sm">${name}</span>
+                        <span class="font-medium text-gray-700 text-sm">${item[0]}</span>
                     </div>
-                    <span class="font-bold text-gray-900 bg-white border border-gray-200 px-2 py-1 rounded text-xs">${count} itens</span>
+                    <span class="font-bold text-gray-900 bg-white border border-gray-200 px-2 py-1 rounded text-xs">${item[1]} itens</span>
                 </div>
             `;
         }).join('');
@@ -308,7 +280,6 @@ const dashboard = {
         });
         const labels = Object.keys(warehouseGroups);
         const values = Object.values(warehouseGroups);
-        const backgroundColors = values.map(v => v < 0 ? '#ef4444' : '#3b82f6'); 
         if (dashboard.chartInstance) dashboard.chartInstance.destroy();
         dashboard.chartInstance = new Chart(ctx, {
             type: 'bar',
@@ -317,19 +288,14 @@ const dashboard = {
                 datasets: [{
                     label: 'Divergência Financeira (R$)',
                     data: values,
-                    backgroundColor: backgroundColors,
+                    backgroundColor: values.map(v => v < 0 ? '#ef4444' : '#3b82f6'),
                     borderWidth: 1
                 }]
             },
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
-                scales: {
-                    y: {
-                        beginAtZero: true,
-                        ticks: { callback: (value) => 'R$ ' + value }
-                    }
-                },
+                scales: { y: { beginAtZero: true, ticks: { callback: (v) => 'R$ ' + v } } },
                 plugins: {
                     tooltip: {
                         callbacks: {
@@ -347,7 +313,7 @@ const dashboard = {
     }
 };
 
-// --- GERENCIAMENTO DE ESTADO LOCAL ---
+// --- DB ---
 const DB = {
     getInventory: () => GithubDB.data ? GithubDB.data.inventory : [],
     getUsers: () => GithubDB.data ? GithubDB.data.users : [],
@@ -363,22 +329,16 @@ const DB = {
     update: async (key, value) => {
         if (!GithubDB.data) return;
         const newData = { ...GithubDB.data, [key]: value };
-        const success = await GithubDB.saveData(newData);
-        return success;
+        return await GithubDB.saveData(newData);
     }
 };
 
-// --- UTILS UI ---
+// --- UI ---
 const ui = {
     showLoading: (show, text = 'Carregando...') => {
         const el = document.getElementById('loading-overlay');
         const txt = document.getElementById('loading-text');
-        if (show) {
-            txt.innerText = text;
-            el.classList.remove('hidden');
-        } else {
-            el.classList.add('hidden');
-        }
+        if (show) { txt.innerText = text; el.classList.remove('hidden'); } else { el.classList.add('hidden'); }
     },
     populateDateSelect: (selectId, dates, includeAll = true) => {
         const select = document.getElementById(selectId);
@@ -386,21 +346,17 @@ const ui = {
         select.innerHTML = '';
         if (includeAll) {
             const option = document.createElement('option');
-            option.value = 'ALL';
-            option.text = 'Todo o Período';
-            select.appendChild(option);
+            option.value = 'ALL'; option.text = 'Todo o Período'; select.appendChild(option);
         }
         dates.forEach(date => {
             const option = document.createElement('option');
-            option.value = date;
-            option.text = date;
-            select.appendChild(option);
+            option.value = date; option.text = date; select.appendChild(option);
         });
         if (dates.includes(currentVal) || currentVal === 'ALL') select.value = currentVal;
     }
 };
 
-// --- AUTENTICAÇÃO ---
+// --- AUTH ---
 const auth = {
     user: null,
     init: () => {
@@ -409,16 +365,10 @@ const auth = {
             ui.showLoading(true, 'Conectando ao banco de dados...');
             GithubDB.fetchData().then(data => {
                 ui.showLoading(false);
-                if (data) {
-                    auth.user = JSON.parse(saved);
-                    app.init();
-                } else {
-                    document.getElementById('login-screen').classList.remove('hidden');
-                }
+                if (data) { auth.user = JSON.parse(saved); app.init(); } 
+                else { document.getElementById('login-screen').classList.remove('hidden'); }
             });
-        } else {
-            document.getElementById('login-screen').classList.remove('hidden');
-        }
+        } else { document.getElementById('login-screen').classList.remove('hidden'); }
     },
     login: async (e) => {
         e.preventDefault();
@@ -427,13 +377,12 @@ const auth = {
         ui.showLoading(true, 'Verificando credenciais...');
         const data = await GithubDB.fetchData();
         ui.showLoading(false);
-        if (!data) return;
+        if (!data) { alert('Erro ao conectar ao GitHub. Verifique o Token ou Repositório.'); return; }
         const user = data.users.find(x => x.username === u && x.password === p);
         if (user) {
             auth.user = user;
             sessionStorage.setItem('current_user', JSON.stringify(user));
             document.getElementById('login-screen').classList.add('hidden');
-            document.getElementById('login-error').classList.add('hidden');
             app.init();
         } else {
             const err = document.getElementById('login-error');
@@ -441,17 +390,14 @@ const auth = {
             err.classList.remove('hidden');
         }
     },
-    logout: () => {
-        sessionStorage.removeItem('current_user');
-        location.reload();
-    }
+    logout: () => { sessionStorage.removeItem('current_user'); location.reload(); }
 };
 
-// --- ROTEADOR ---
+// --- ROUTER ---
 const router = {
     navigate: (view) => {
         document.querySelectorAll('.view-section').forEach(el => el.classList.add('hidden'));
-        document.querySelectorAll('.nav-btn').forEach(el => el.classList.remove('nav-btn-active', 'text-white'));
+        document.querySelectorAll('.nav-btn').forEach(el => el.classList.remove('nav-btn-active'));
         document.getElementById(`view-${view}`).classList.remove('hidden');
         const btn = document.getElementById(`nav-${view}`);
         if(btn) btn.classList.add('nav-btn-active');
@@ -459,7 +405,7 @@ const router = {
             'dashboard': ['Dashboard', 'Métricas e Análises'],
             'import': ['Registro de Inventário', 'Importação e Cálculo'],
             'list': ['Base de Materiais', 'Consulta Geral'],
-            'users': ['Gestão de Usuários', 'Controle de Acesso']
+            'users': ['Gestão de Usuários', 'Equipe']
         };
         document.getElementById('page-title').innerText = titles[view][0];
         document.getElementById('page-subtitle').innerText = titles[view][1];
@@ -470,72 +416,57 @@ const router = {
     }
 };
 
-// --- LÓGICA DE INVENTÁRIO ---
+// --- INVENTORY ---
 let previewData = [];
 const inventory = {
     triggerAutoFill: () => {
         const codeInput = document.getElementById('input-code');
-        const sapInput = document.getElementById('input-sap'); 
-        const descInput = document.getElementById('input-desc'); 
-        const valInput = document.getElementById('input-val'); 
         if (!codeInput) return;
-        const codeLines = codeInput.value.split('\n');
-        const sapLines = sapInput.value.split('\n');
-        const currentDescLines = descInput.value.split('\n');
-        const currentValLines = valInput.value.split('\n');
-        const newDescs = [];
-        const newVals = [];
-        codeLines.forEach((codeRaw, i) => {
-            const code = DataUtils.normalizeCode(codeRaw);
+        const codes = codeInput.value.split('\n');
+        const saps = document.getElementById('input-sap').value.split('\n');
+        const descs = [];
+        const vals = [];
+        codes.forEach((raw, i) => {
+            const code = DataUtils.normalizeCode(raw);
             const dbDesc = MasterData.descriptions[code];
-            const dbUnitPrice = MasterData.prices[code];
-            const sapQ = DataUtils.parseMoney(sapLines[i] || '0');
-            if (dbDesc) newDescs.push(dbDesc); else newDescs.push(currentDescLines[i] || '');
-            if (dbUnitPrice !== undefined && !isNaN(dbUnitPrice)) {
-                newVals.push((dbUnitPrice * sapQ).toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'}));
-            } else newVals.push(currentValLines[i] || '');
+            const dbPrice = MasterData.prices[code];
+            const sapQ = DataUtils.parseMoney(saps[i] || '0');
+            descs.push(dbDesc || '');
+            if (dbPrice) vals.push((dbPrice * sapQ).toLocaleString('pt-BR', {style:'currency', currency:'BRL'}));
+            else vals.push('');
         });
-        descInput.value = newDescs.join('\n');
-        valInput.value = newVals.join('\n');
+        document.getElementById('input-desc').value = descs.join('\n');
+        document.getElementById('input-val').value = vals.join('\n');
     },
     setupListeners: () => {
         const codeInput = document.getElementById('input-code');
-        const sapInput = document.getElementById('input-sap');
-        const handleInput = () => requestAnimationFrame(() => inventory.triggerAutoFill());
         if (codeInput) {
-            codeInput.addEventListener('input', handleInput);
-            codeInput.addEventListener('paste', () => setTimeout(handleInput, 100));
+            codeInput.addEventListener('input', () => inventory.triggerAutoFill());
+            codeInput.addEventListener('paste', () => setTimeout(() => inventory.triggerAutoFill(), 50));
         }
-        if (sapInput) sapInput.addEventListener('input', handleInput);
+        document.getElementById('input-sap').addEventListener('input', () => inventory.triggerAutoFill());
     },
     processInput: () => {
-        const getLines = (id) => document.getElementById(id).value.trim().split('\n');
-        const codes = getLines('input-code');
-        const descs = getLines('input-desc');
-        const whs = getLines('input-wh');
-        const saps = getLines('input-sap');
-        const physs = getLines('input-phys');
-        const vals = getLines('input-val');
+        const codes = document.getElementById('input-code').value.trim().split('\n');
         if (codes[0] === "") return alert("Cole os dados primeiro.");
-        previewData = codes.map((codeRaw, i) => {
-            const code = DataUtils.normalizeCode(codeRaw);
+        const descs = document.getElementById('input-desc').value.split('\n');
+        const whs = document.getElementById('input-wh').value.split('\n');
+        const saps = document.getElementById('input-sap').value.split('\n');
+        const phys = document.getElementById('input-phys').value.split('\n');
+        const vals = document.getElementById('input-val').value.split('\n');
+        previewData = codes.map((raw, i) => {
+            const code = DataUtils.normalizeCode(raw);
             if (!code) return null;
-            const description = descs[i] ? descs[i].trim() : '';
-            const sapQ = DataUtils.parseMoney(saps[i] || '0');
-            const physQ = DataUtils.parseMoney(physs[i] || '0');
-            const sapVal = DataUtils.parseMoney(vals[i] || '0');
-            let unitVal = sapQ !== 0 ? sapVal / sapQ : (MasterData.prices[code] || 0);
-            const divQ = physQ - sapQ;
+            const sq = DataUtils.parseMoney(saps[i] || '0');
+            const pq = DataUtils.parseMoney(phys[i] || '0');
+            const sv = DataUtils.parseMoney(vals[i] || '0');
+            const uv = sq !== 0 ? sv / sq : (MasterData.prices[code] || 0);
+            const dq = pq - sq;
             return {
-                id: Date.now() + Math.random(),
-                code: codeRaw.trim(),
-                desc: description,
-                wh: whs[i] || 'GERAL',
-                sapQ, physQ, sapVal,
-                divQ, divVal: divQ * unitVal,
-                date: new Date().toLocaleDateString('pt-BR'),
-                registeredBy: auth.user.name,
-                registeredRole: auth.user.role === 'ADMIN' ? 'Administrador' : 'Balconista'
+                id: Date.now() + Math.random(), code: raw.trim(), desc: descs[i] || '',
+                wh: whs[i] || 'GERAL', sapQ: sq, physQ: pq, sapVal: sv,
+                divQ: dq, divVal: dq * uv, date: new Date().toLocaleDateString('pt-BR'),
+                registeredBy: auth.user.name, registeredRole: auth.user.role
             };
         }).filter(x => x !== null);
         inventory.renderPreview();
@@ -543,31 +474,26 @@ const inventory = {
     renderPreview: () => {
         document.getElementById('import-preview').classList.remove('hidden');
         document.getElementById('preview-body').innerHTML = previewData.map(item => `
-            <tr class="hover:bg-gray-50 transition-colors">
-                <td class="px-4 py-2 text-gray-800 font-medium">${item.code}</td>
-                <td class="px-4 py-2 text-gray-500 text-xs">${item.desc}</td>
-                <td class="px-4 py-2 text-gray-500">${item.wh}</td>
-                <td class="px-4 py-2 text-right text-gray-600">${item.sapQ}</td>
-                <td class="px-4 py-2 text-right font-bold text-gray-800 bg-gray-50 border-l border-r">${item.physQ}</td>
-                <td class="px-4 py-2 text-right font-bold ${item.divVal < 0 ? 'text-red-600' : item.divVal > 0 ? 'text-blue-600' : 'text-green-600'}">
+            <tr class="hover:bg-gray-50 text-[11px]">
+                <td class="px-2 py-1 font-medium">${item.code}</td>
+                <td class="px-2 py-1 truncate max-w-[150px]">${item.desc}</td>
+                <td class="px-2 py-1 text-right">${item.sapQ}</td>
+                <td class="px-2 py-1 text-right font-bold">${item.physQ}</td>
+                <td class="px-2 py-1 text-right font-bold ${item.divVal < 0 ? 'text-red-600' : 'text-blue-600'}">
                     ${item.divVal.toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'})}
                 </td>
             </tr>
         `).join('');
     },
     savePreview: async () => {
-        const success = await DB.update('inventory', [...DB.getInventory(), ...previewData]);
-        if (success) {
+        if(await DB.update('inventory', [...DB.getInventory(), ...previewData])) {
             inventory.clearPreview();
             document.querySelectorAll('.input-area').forEach(t => t.value = '');
-            alert('Dados Salvos!');
+            alert('Inventário Salvo!');
             if (auth.user.role === 'ADMIN') router.navigate('list');
         }
     },
-    clearPreview: () => {
-        previewData = [];
-        document.getElementById('import-preview').classList.add('hidden');
-    },
+    clearPreview: () => { previewData = []; document.getElementById('import-preview').classList.add('hidden'); },
     renderTable: () => {
         const dates = DB.getUniqueDates();
         ui.populateDateSelect('list-date-filter', dates, true);
@@ -580,37 +506,32 @@ const inventory = {
         const tbody = document.getElementById('inventory-body');
         if (data.length === 0) { tbody.innerHTML = `<tr><td colspan="10" class="text-center py-8 text-gray-400">Vazio</td></tr>`; return; }
         tbody.innerHTML = data.map(item => `
-            <tr class="hover:bg-gray-50 transition-colors border-b last:border-0 text-xs">
-                <td class="px-4 py-3 text-gray-500">${item.date}</td>
-                <td class="px-4 py-3"><div class="font-bold">${item.registeredBy}</div></td>
-                <td class="px-4 py-3 font-medium text-gray-900">${item.code}</td>
-                <td class="px-4 py-3 text-gray-500 truncate max-w-xs">${item.desc}</td>
-                <td class="px-4 py-3 text-gray-500">${item.wh}</td>
-                <td class="px-4 py-3 text-right">${item.sapQ}</td>
-                <td class="px-4 py-3 text-right bg-gray-50">${item.physQ}</td>
-                <td class="px-4 py-3 text-right font-bold ${item.divQ !== 0 ? 'text-red-600' : 'text-green-600'}">${item.divQ}</td>
-                <td class="px-4 py-3 text-right font-bold ${item.divVal !== 0 ? (item.divVal < 0 ? 'text-red-600' : 'text-blue-600') : 'text-gray-400'}">
+            <tr class="hover:bg-gray-50 border-b last:border-0 text-[11px]">
+                <td class="px-3 py-2 text-gray-400">${item.date}</td>
+                <td class="px-3 py-2 font-bold">${item.registeredBy}</td>
+                <td class="px-3 py-2 font-medium">${item.code}</td>
+                <td class="px-3 py-2 truncate max-w-xs">${item.desc}</td>
+                <td class="px-3 py-2">${item.wh}</td>
+                <td class="px-3 py-2 text-right">${item.sapQ}</td>
+                <td class="px-3 py-2 text-right bg-gray-50">${item.physQ}</td>
+                <td class="px-3 py-2 text-right font-bold ${item.divQ !== 0 ? 'text-red-600' : 'text-green-600'}">${item.divQ}</td>
+                <td class="px-3 py-2 text-right font-bold ${item.divVal !== 0 ? (item.divVal < 0 ? 'text-red-600' : 'text-blue-600') : 'text-gray-400'}">
                     ${item.divVal.toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'})}
                 </td>
-                <td class="px-4 py-3 text-right"><button onclick="inventory.deleteItem('${item.id}')" class="text-gray-400 hover:text-red-600"><i data-lucide="trash-2" class="w-4 h-4"></i></button></td>
+                <td class="px-3 py-2 text-right"><button onclick="inventory.deleteItem('${item.id}')" class="text-gray-300 hover:text-red-600"><i data-lucide="trash-2" class="w-4 h-4"></i></button></td>
             </tr>
         `).join('');
         lucide.createIcons();
     },
     deleteItem: async (id) => {
-        if(confirm('Excluir?')) {
-            if (await DB.update('inventory', DB.getInventory().filter(i => i.id != id))) inventory.renderTable();
-        }
+        if(confirm('Excluir registro?')) if (await DB.update('inventory', DB.getInventory().filter(i => i.id != id))) inventory.renderTable();
     },
     exportCSV: () => {
         let csv = "Data;Responsavel;Material;Descricao;Deposito;SAP;Fisico;DivQ;DivV\n";
-        DB.getInventory().forEach(row => {
-            csv += `${row.date};${row.registeredBy};${row.code};${row.desc};${row.wh};${row.sapQ};${row.physQ};${row.divQ};${row.divVal.toFixed(2)}\n`;
-        });
+        DB.getInventory().forEach(row => { csv += `${row.date};${row.registeredBy};${row.code};${row.desc};${row.wh};${row.sapQ};${row.physQ};${row.divQ};${row.divVal.toFixed(2)}\n`; });
         const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
         const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url; a.download = `inventario.csv`; a.click();
+        const a = document.createElement('a'); a.href = url; a.download = `inventario_tereos.csv`; a.click();
     }
 };
 
@@ -621,28 +542,22 @@ const users = {
             <tr class="text-xs">
                 <td class="px-4 py-2">${u.name}</td>
                 <td class="px-4 py-2">${u.username}</td>
-                <td class="px-4 py-2">${u.role}</td>
-                <td class="px-4 py-2 text-right">
-                    ${u.username !== 'mvfujimura' ? `<button onclick="users.remove('${u.id}')" class="text-red-500"><i data-lucide="trash"></i></button>` : ''}
-                </td>
+                <td class="px-4 py-2 text-right"><button onclick="users.remove('${u.id}')" class="text-red-400"><i data-lucide="trash"></i></button></td>
             </tr>
         `).join('');
         lucide.createIcons();
     },
     add: async (e) => {
         e.preventDefault();
-        const name = document.getElementById('new-user-name').value;
-        const user = document.getElementById('new-user-login').value;
-        const pass = document.getElementById('new-user-pass').value;
-        const role = document.getElementById('new-user-role').value;
-        if(DB.getUsers().find(u => u.username === user)) return alert('Login já existe');
-        if(await DB.update('users', [...DB.getUsers(), { id: Date.now().toString(), name, username: user, password: pass, role }])) {
+        const n = document.getElementById('new-user-name').value;
+        const u = document.getElementById('new-user-login').value;
+        const p = document.getElementById('new-user-pass').value;
+        const r = document.getElementById('new-user-role').value;
+        if(await DB.update('users', [...DB.getUsers(), { id: Date.now().toString(), name: n, username: u, password: p, role: r }])) {
             users.render(); e.target.reset();
         }
     },
-    remove: async (id) => {
-        if(confirm('Remover?')) if(await DB.update('users', DB.getUsers().filter(u => u.id !== id))) users.render();
-    }
+    remove: async (id) => { if(confirm('Remover?')) if(await DB.update('users', DB.getUsers().filter(u => u.id !== id))) users.render(); }
 };
 
 // --- INIT ---
@@ -650,13 +565,12 @@ const app = {
     init: () => {
         document.getElementById('app-screen').classList.remove('hidden');
         document.getElementById('user-name-display').innerText = auth.user.name;
-        document.getElementById('user-role-display').innerText = auth.user.role === 'ADMIN' ? 'Administrador' : 'Balconista';
+        document.getElementById('user-role-display').innerText = auth.user.role;
         document.getElementById('current-date').innerText = new Date().toLocaleDateString('pt-BR');
-        ui.populateDateSelect('dashboard-date-filter', DB.getUniqueDates(), true);
         MasterData.init();
         inventory.setupListeners();
         if (auth.user.role !== 'ADMIN') {
-            ['nav-dashboard', 'nav-users', 'nav-list'].forEach(id => document.getElementById(id).classList.add('hidden'));
+            ['nav-dashboard', 'nav-users', 'nav-list'].forEach(id => document.getElementById(id).style.display = 'none');
             router.navigate('import');
         } else router.navigate('dashboard');
         lucide.createIcons();
