@@ -34,8 +34,11 @@ aside {
 
 .nav-label {
     white-space: nowrap;
-    opacity: 1;
-    transition: opacity 0.2s, visibility 0.2s;
+    transition: opacity 0.2s;
+}
+
+#sidebar-user-info, #logo-title {
+    transition: opacity 0.2s;
 }
 
 .hidden {
@@ -53,6 +56,8 @@ aside.w-20 .nav-btn {
 
 aside.w-20 #logo-title {
     opacity: 0;
-    width: 0;
-    margin: 0;
+}
+
+aside.w-20 .nav-label {
+    opacity: 0;
 }
