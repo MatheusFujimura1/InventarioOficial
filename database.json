@@ -41,20 +41,6 @@
       "date": "12/02/2026",
       "registeredBy": "Paulo Cesar Laureano",
       "registeredRole": "Administrador"
-    },
-    {
-      "id": 1770979162704.683,
-      "code": "300500232338",
-      "desc": "COPO DESCART;PLAST;180ML;EMB 2500 UNID",
-      "wh": "DP01",
-      "sapQ": 100,
-      "physQ": 99,
-      "sapVal": 4396.26,
-      "divQ": -1,
-      "divVal": -43.9626,
-      "date": "13/02/2026",
-      "registeredBy": "Matheus Fujimura",
-      "registeredRole": "Administrador"
     }
   ],
   "users": [
