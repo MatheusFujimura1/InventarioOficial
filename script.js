@@ -1,20 +1,8 @@
 // --- CONFIGURAÇÃO GITHUB ---
-// O token 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 é codificado e fragmentado
-// Isso evita que os robôs do GitHub identifiquem a string 'ghp_' e revoguem o acesso.
-const _p = ["Z2hwX2NDaF", "V1eGFYQmRK", "M3RiekM0RW", "JUVGNmMzBj", "aDNFaTRlMk", "ZPcsw=="];
-const _decodeToken = () => {
-    try {
-        return atob(_p.join(''));
-    } catch (e) {
-        console.error("Erro ao reconstruir credenciais");
-        return "";
-    }
-};
-
 const GITHUB_CONFIG = {
     OWNER: 'MatheusFujimura1', 
     REPO: 'InventarioOficial',   
-    TOKEN: _decodeToken(), 
+    TOKEN: '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', 
     FILE_PATH: 'database.json',
     BRANCH: 'main' 
 };
@@ -62,9 +50,6 @@ const GithubDB = {
 
             if (!response.ok) {
                 console.error('Erro na API do GitHub:', response.status, response.statusText);
-                if (response.status === 401 || response.status === 403) {
-                    alert("Erro de Autenticação: O token do GitHub pode ter sido revogado ou expirou.");
-                }
                 return null;
             }
 
@@ -358,7 +343,7 @@ const auth = {
         const data = await GithubDB.fetchData();
         ui.showLoading(false);
         if (!data) { 
-            alert('Falha crítica de conexão com o GitHub. Verifique se o token foi revogado.'); 
+            alert('Falha crítica de conexão com o GitHub. Verifique se o token é válido.'); 
             return; 
         }
         const user = data.users.find(x => x.username === u && x.password === p);
