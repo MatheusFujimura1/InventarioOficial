@@ -1,5 +1,20 @@
 {
-  "inventory": [],
+  "inventory": [
+    {
+      "id": 1770980679207.7595,
+      "code": "300500232338",
+      "desc": "COPO DESCART;PLAST;180ML;EMB 2500 UNID",
+      "wh": "DP01",
+      "sapQ": 10,
+      "physQ": 9.8,
+      "sapVal": 439.63,
+      "divQ": -0.1999999999999993,
+      "divVal": -8.792599999999968,
+      "date": "13/02/2026",
+      "registeredBy": "Matheus Fujimura",
+      "registeredRole": "ADMIN"
+    }
+  ],
   "users": [
     {
       "id": "root",
