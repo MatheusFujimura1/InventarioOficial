@@ -27,6 +27,20 @@
       "date": "13/02/2026",
       "registeredBy": "Matheus Fujimura",
       "registeredRole": "ADMIN"
+    },
+    {
+      "id": 1770981290939.736,
+      "code": "300500232338",
+      "desc": "COPO DESCART;PLAST;180ML;EMB 2500 UNID",
+      "wh": "DP01",
+      "sapQ": 10,
+      "physQ": 10,
+      "sapVal": 439.63,
+      "divQ": 0,
+      "divVal": 0,
+      "date": "13/02/2026",
+      "registeredBy": "Matheus Fujimura",
+      "registeredRole": "ADMIN"
     }
   ],
   "users": [
