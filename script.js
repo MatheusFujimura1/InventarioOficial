@@ -252,8 +252,9 @@ const dashboard = {
         if (!ctx) return;
         const warehouseGroups = {};
         data.forEach(item => {
-            if (!warehouseGroups[item.wh]) warehouseGroups[item.wh] = 0;
-            warehouseGroups[item.wh] += item.divVal; 
+            const wh = item.wh || 'GERAL';
+            if (!warehouseGroups[wh]) warehouseGroups[wh] = 0;
+            warehouseGroups[wh] += item.divVal; 
         });
         const labels = Object.keys(warehouseGroups);
         const values = Object.values(warehouseGroups);
@@ -330,7 +331,10 @@ const auth = {
             ui.showLoading(true, 'Conectando ao banco de dados...');
             GithubDB.fetchData().then(data => {
                 ui.showLoading(false);
-                if (data) { auth.user = JSON.parse(saved); app.init(); } 
+                if (data) { 
+                    auth.user = JSON.parse(saved); 
+                    app.init(); 
+                } 
                 else { document.getElementById('login-screen').classList.remove('hidden'); }
             });
         } else { document.getElementById('login-screen').classList.remove('hidden'); }
@@ -416,27 +420,40 @@ const inventory = {
     },
     processInput: () => {
         const codes = document.getElementById('input-code').value.trim().split('\n');
-        if (codes[0] === "") return alert("Cole os dados primeiro.");
+        if (codes[0] === "" || !codes[0]) return alert("Cole os dados primeiro.");
+        
         const descs = document.getElementById('input-desc').value.split('\n');
         const whs = document.getElementById('input-wh').value.split('\n');
         const saps = document.getElementById('input-sap').value.split('\n');
         const phys = document.getElementById('input-phys').value.split('\n');
         const vals = document.getElementById('input-val').value.split('\n');
+        
         previewData = codes.map((raw, i) => {
             const code = DataUtils.normalizeCode(raw);
             if (!code) return null;
+            
             const sq = DataUtils.parseMoney(saps[i] || '0');
             const pq = DataUtils.parseMoney(phys[i] || '0');
             const sv = DataUtils.parseMoney(vals[i] || '0');
             const uv = sq !== 0 ? sv / sq : (MasterData.prices[code] || 0);
             const dq = pq - sq;
+            
             return {
-                id: Date.now() + Math.random(), code: raw.trim(), desc: descs[i] || '',
-                wh: whs[i] || 'GERAL', sapQ: sq, physQ: pq, sapVal: sv,
-                divQ: dq, divVal: dq * uv, date: new Date().toLocaleDateString('pt-BR'),
-                registeredBy: auth.user.name, registeredRole: auth.user.role
+                id: Date.now() + Math.random(), 
+                code: raw.trim(), 
+                desc: descs[i] || '',
+                wh: (whs[i] || 'GERAL').trim().toUpperCase(), 
+                sapQ: sq, 
+                physQ: pq, 
+                sapVal: sv,
+                divQ: dq, 
+                divVal: dq * uv, 
+                date: new Date().toLocaleDateString('pt-BR'),
+                registeredBy: auth.user.name, 
+                registeredRole: auth.user.role
             };
         }).filter(x => x !== null);
+        
         inventory.renderPreview();
     },
     renderPreview: () => {
@@ -445,6 +462,7 @@ const inventory = {
             <tr class="hover:bg-gray-50 text-[11px]">
                 <td class="px-2 py-1 font-medium">${item.code}</td>
                 <td class="px-2 py-1 truncate max-w-[150px]">${item.desc}</td>
+                <td class="px-2 py-1">${item.wh}</td>
                 <td class="px-2 py-1 text-right">${item.sapQ}</td>
                 <td class="px-2 py-1 text-right font-bold">${item.physQ}</td>
                 <td class="px-2 py-1 text-right font-bold ${item.divVal < 0 ? 'text-red-600' : 'text-blue-600'}">
@@ -469,22 +487,32 @@ const inventory = {
         const dateFilter = document.getElementById('list-date-filter').value;
         let data = DB.getInventory();
         if (dateFilter !== 'ALL') data = data.filter(i => i.date === dateFilter);
-        data = data.filter(i => i.code.toLowerCase().includes(search) || i.desc.toLowerCase().includes(search));
+        data = data.filter(i => i.code.toLowerCase().includes(search) || i.desc.toLowerCase().includes(search) || (i.wh && i.wh.toLowerCase().includes(search)));
         data.sort((a, b) => b.id - a.id);
+        
         const tbody = document.getElementById('inventory-body');
-        if (data.length === 0) { tbody.innerHTML = `<tr><td colspan="10" class="text-center py-8 text-gray-400">Nenhum registro encontrado</td></tr>`; return; }
+        if (data.length === 0) { 
+            tbody.innerHTML = `<tr><td colspan="10" class="text-center py-8 text-gray-400">Nenhum registro encontrado</td></tr>`; 
+            return; 
+        }
+        
         tbody.innerHTML = data.map(item => `
             <tr class="hover:bg-gray-50 border-b last:border-0 text-[11px]">
                 <td class="px-3 py-2 text-gray-400">${item.date}</td>
                 <td class="px-3 py-2 font-bold">${item.registeredBy}</td>
                 <td class="px-3 py-2 font-medium">${item.code}</td>
                 <td class="px-3 py-2 truncate max-w-xs">${item.desc}</td>
+                <td class="px-3 py-2 font-medium">${item.wh || 'GERAL'}</td>
                 <td class="px-3 py-2 text-right">${item.sapQ}</td>
                 <td class="px-3 py-2 text-right font-bold bg-gray-50">${item.physQ}</td>
                 <td class="px-3 py-2 text-right font-bold ${item.divVal < 0 ? 'text-red-600' : 'text-blue-600'}">
                     ${item.divVal.toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'})}
                 </td>
-                <td class="px-3 py-2 text-right"><button onclick="inventory.deleteItem('${item.id}')" class="text-gray-300 hover:text-red-600"><i data-lucide="trash-2" class="w-4 h-4"></i></button></td>
+                <td class="px-3 py-2 text-right">
+                    <button onclick="inventory.deleteItem('${item.id}')" class="text-gray-300 hover:text-red-600">
+                        <i data-lucide="trash-2" class="w-4 h-4"></i>
+                    </button>
+                </td>
             </tr>
         `).join('');
         lucide.createIcons();
@@ -494,7 +522,9 @@ const inventory = {
     },
     exportCSV: () => {
         let csv = "Data;Responsavel;Material;Descricao;Deposito;SAP;Fisico;DivQ;DivV\n";
-        DB.getInventory().forEach(row => { csv += `${row.date};${row.registeredBy};${row.code};${row.desc};${row.wh};${row.sapQ};${row.physQ};${row.divQ};${row.divVal.toFixed(2)}\n`; });
+        DB.getInventory().forEach(row => { 
+            csv += `${row.date};${row.registeredBy};${row.code};${row.desc};${row.wh || 'GERAL'};${row.sapQ};${row.physQ};${row.divQ};${row.divVal.toFixed(2)}\n`; 
+        });
         const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a'); a.href = url; a.download = `inventario_tereos.csv`; a.click();
@@ -536,7 +566,10 @@ const app = {
         MasterData.init();
         inventory.setupListeners();
         if (auth.user.role !== 'ADMIN') {
-            ['nav-dashboard', 'nav-users', 'nav-list'].forEach(id => document.getElementById(id).style.display = 'none');
+            ['nav-dashboard', 'nav-users', 'nav-list'].forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.style.display = 'none';
+            });
             router.navigate('import');
         } else router.navigate('dashboard');
         lucide.createIcons();
