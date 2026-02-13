@@ -106,6 +106,13 @@
       "username": "plaureano",
       "password": "Esporte@3000",
       "role": "ADMIN"
+    },
+    {
+      "id": "1770982629857",
+      "name": "Matheus de Barcellos São Romão",
+      "username": "mromao",
+      "password": "Vertente2025**",
+      "role": "ADMIN"
     }
   ]
 }
